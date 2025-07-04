@@ -1,0 +1,21 @@
+[package]
+name = "erigui-rendering"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+erigui-core = { path = "../erigui-core" }
+glutin = { workspace = true }
+glutin-winit = { workspace = true }
+winit = { workspace = true }
+raw-window-handle = { workspace = true }
+gl = { workspace = true }
+freetype-rs = { workspace = true }
+glam = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[build-dependencies]
+gl_generator = "0.14"

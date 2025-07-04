@@ -1,0 +1,246 @@
+use crate::{Color, Margins};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct Theme {
+    pub name: String,
+    pub colors: ThemeColors,
+    pub typography: Typography,
+    pub spacing: Spacing,
+    pub borders: Borders,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThemeColors {
+    // Background colors
+    pub background: Color,
+    pub surface: Color,
+    pub surface_variant: Color,
+    
+    // Text colors
+    pub text: Color,
+    pub text_secondary: Color,
+    pub text_disabled: Color,
+    
+    // Primary colors
+    pub primary: Color,
+    pub primary_hover: Color,
+    pub primary_active: Color,
+    pub primary_disabled: Color,
+    
+    // Secondary colors
+    pub secondary: Color,
+    pub secondary_hover: Color,
+    pub secondary_active: Color,
+    
+    // Semantic colors
+    pub success: Color,
+    pub warning: Color,
+    pub error: Color,
+    pub info: Color,
+    
+    // Border colors
+    pub border: Color,
+    pub border_hover: Color,
+    pub border_focus: Color,
+    
+    // Special colors
+    pub selection: Color,
+    pub shadow: Color,
+    pub overlay: Color,
+}
+
+#[derive(Debug, Clone)]
+pub struct Typography {
+    pub font_family: String,
+    pub font_size_base: i32,
+    pub font_size_small: i32,
+    pub font_size_large: i32,
+    pub font_size_xlarge: i32,
+    pub line_height: f32,
+    pub letter_spacing: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct Spacing {
+    pub base: i32,
+    pub margins: Margins,
+    pub padding: Margins,
+    pub gap_small: i32,
+    pub gap_medium: i32,
+    pub gap_large: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct Borders {
+    pub width: i32,
+    pub radius: i32,
+    pub radius_small: i32,
+    pub radius_large: i32,
+}
+
+impl Theme {
+    pub fn light() -> Self {
+        Self {
+            name: "Light".to_string(),
+            colors: ThemeColors {
+                // Backgrounds
+                background: Color::from_hex(0xFFFFFF),
+                surface: Color::from_hex(0xF5F5F5),
+                surface_variant: Color::from_hex(0xEEEEEE),
+                
+                // Text
+                text: Color::from_hex(0x212121),
+                text_secondary: Color::from_hex(0x757575),
+                text_disabled: Color::from_hex(0xBDBDBD),
+                
+                // Primary
+                primary: Color::from_hex(0x1976D2),
+                primary_hover: Color::from_hex(0x1565C0),
+                primary_active: Color::from_hex(0x0D47A1),
+                primary_disabled: Color::from_hex(0x90CAF9),
+                
+                // Secondary
+                secondary: Color::from_hex(0x424242),
+                secondary_hover: Color::from_hex(0x333333),
+                secondary_active: Color::from_hex(0x212121),
+                
+                // Semantic
+                success: Color::from_hex(0x4CAF50),
+                warning: Color::from_hex(0xFF9800),
+                error: Color::from_hex(0xF44336),
+                info: Color::from_hex(0x2196F3),
+                
+                // Borders
+                border: Color::from_hex(0xE0E0E0),
+                border_hover: Color::from_hex(0xBDBDBD),
+                border_focus: Color::from_hex(0x1976D2),
+                
+                // Special
+                selection: Color::rgba(25, 118, 210, 51), // 20% alpha
+                shadow: Color::rgba(0, 0, 0, 38), // 15% alpha
+                overlay: Color::rgba(0, 0, 0, 128), // 50% alpha
+            },
+            typography: Typography {
+                font_family: "JetBrains Mono".to_string(),
+                font_size_base: 14,
+                font_size_small: 12,
+                font_size_large: 16,
+                font_size_xlarge: 20,
+                line_height: 1.5,
+                letter_spacing: 0.0,
+            },
+            spacing: Spacing {
+                base: 8,
+                margins: Margins::all(8),
+                padding: Margins::all(8),
+                gap_small: 4,
+                gap_medium: 8,
+                gap_large: 16,
+            },
+            borders: Borders {
+                width: 1,
+                radius: 4,
+                radius_small: 2,
+                radius_large: 8,
+            },
+        }
+    }
+    
+    pub fn dark() -> Self {
+        Self {
+            name: "Dark".to_string(),
+            colors: ThemeColors {
+                // Backgrounds
+                background: Color::from_hex(0x121212),
+                surface: Color::from_hex(0x1E1E1E),
+                surface_variant: Color::from_hex(0x2C2C2C),
+                
+                // Text
+                text: Color::from_hex(0xE0E0E0),
+                text_secondary: Color::from_hex(0x9E9E9E),
+                text_disabled: Color::from_hex(0x616161),
+                
+                // Primary
+                primary: Color::from_hex(0x90CAF9),
+                primary_hover: Color::from_hex(0x64B5F6),
+                primary_active: Color::from_hex(0x42A5F5),
+                primary_disabled: Color::from_hex(0x424242),
+                
+                // Secondary
+                secondary: Color::from_hex(0xBDBDBD),
+                secondary_hover: Color::from_hex(0xE0E0E0),
+                secondary_active: Color::from_hex(0xF5F5F5),
+                
+                // Semantic
+                success: Color::from_hex(0x66BB6A),
+                warning: Color::from_hex(0xFFA726),
+                error: Color::from_hex(0xEF5350),
+                info: Color::from_hex(0x42A5F5),
+                
+                // Borders
+                border: Color::from_hex(0x424242),
+                border_hover: Color::from_hex(0x616161),
+                border_focus: Color::from_hex(0x90CAF9),
+                
+                // Special
+                selection: Color::rgba(144, 202, 249, 51), // 20% alpha
+                shadow: Color::rgba(0, 0, 0, 128), // 50% alpha
+                overlay: Color::rgba(0, 0, 0, 179), // 70% alpha
+            },
+            ..Self::light()
+        }
+    }
+    
+    pub fn from_system() -> Self {
+        // TODO: Detect system theme
+        Self::light()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ThemeManager {
+    themes: HashMap<String, Theme>,
+    current_theme: String,
+}
+
+impl ThemeManager {
+    pub fn new() -> Self {
+        let mut themes = HashMap::new();
+        themes.insert("Light".to_string(), Theme::light());
+        themes.insert("Dark".to_string(), Theme::dark());
+        
+        Self {
+            themes,
+            current_theme: "Light".to_string(),
+        }
+    }
+    
+    pub fn current(&self) -> &Theme {
+        self.themes.get(&self.current_theme)
+            .expect("Current theme should always exist")
+    }
+    
+    pub fn set_theme(&mut self, name: &str) -> Result<(), String> {
+        if self.themes.contains_key(name) {
+            self.current_theme = name.to_string();
+            Ok(())
+        } else {
+            Err(format!("Theme '{}' not found", name))
+        }
+    }
+    
+    pub fn add_theme(&mut self, theme: Theme) {
+        self.themes.insert(theme.name.clone(), theme);
+    }
+    
+    pub fn list_themes(&self) -> Vec<&str> {
+        self.themes.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+impl Default for ThemeManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

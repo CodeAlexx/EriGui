@@ -1,0 +1,16 @@
+[package]
+name = "erigui-widgets"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+erigui-core = { path = "../erigui-core" }
+erigui-rendering = { path = "../erigui-rendering" }
+thiserror = { workspace = true }
+log = { workspace = true }
+smallvec = { workspace = true }
+slotmap = { workspace = true }
+chrono = "0.4"
+dirs = "5.0"

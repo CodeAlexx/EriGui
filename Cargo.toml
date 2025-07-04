@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "erigui-core",
+    "erigui-widgets", 
+    "erigui-rendering",
+    "erigui-examples",
+]
+
+[workspace.package]
+version = "0.0.3-alpha"
+edition = "2021"
+authors = ["EriGui Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CodeAlexx/EriGui"
+
+[workspace.dependencies]
+# Core dependencies
+thiserror = "1.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+# Graphics dependencies
+gl = "0.14"
+glutin = "0.30"
+glutin-winit = "0.3"
+winit = "0.28"
+raw-window-handle = "0.5"
+
+# Font rendering - use freetype for proper font rendering
+freetype-rs = "0.7"
+
+# Math and utilities
+glam = "0.29"
+smallvec = "1.13"
+slotmap = "1.0"
+
+# Event handling
+bitflags = "2.6"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,52 @@
+[package]
+name = "erigui-examples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+erigui-core = { path = "../erigui-core" }
+erigui-rendering = { path = "../erigui-rendering" }
+erigui-widgets = { path = "../erigui-widgets" }
+winit = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+chrono = "0.4"
+dirs = "5.0"
+
+[[example]]
+name = "hello_world"
+path = "examples/hello_world.rs"
+
+[[example]]
+name = "widget_gallery"
+path = "examples/widget_gallery.rs"
+
+[[example]]
+name = "file_manager"
+path = "examples/file_manager.rs"
+
+[[example]]
+name = "text_demo"
+path = "examples/text_demo.rs"
+
+[[example]]
+name = "menu_demo"
+path = "examples/menu_demo.rs"
+
+[[example]]
+name = "widgets_demo"
+path = "examples/widgets_demo.rs"
+
+[[example]]
+name = "advanced_rendering"
+path = "examples/advanced_rendering.rs"
+
+[[example]]
+name = "memory_check"
+path = "examples/memory_check.rs"
+
+[[example]]
+name = "file_manager_demo"
+path = "examples/file_manager_demo.rs"

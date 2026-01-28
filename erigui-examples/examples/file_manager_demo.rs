@@ -1440,6 +1440,9 @@ impl FileManagerDemo {
             self.navigate_to(entry_path);
         } else if Self::is_text_file(&self.file_entries[index]) {
             self.open_editor(entry_path);
+        } else {
+            // Open other files (images, etc.) with system default application
+            let _ = open_link_target(entry_path.to_string_lossy().as_ref());
         }
     }
 
@@ -1675,6 +1678,9 @@ impl FileManagerDemo {
                 self.navigate_to(path);
             } else if Self::is_text_file(entry) {
                 self.open_editor(entry.path.clone());
+            } else {
+                // Open other files (images, etc.) with system default application
+                let _ = open_link_target(entry.path.to_string_lossy().as_ref());
             }
             return;
         } else {
@@ -2633,7 +2639,7 @@ impl FileManagerDemo {
                     }
                     // Close any open menu bar dropdown before showing the context menu
                     self.menu_bar.hide_dropdown();
-                    self.context_menu.show_at(pos);
+                    self.context_menu.show_at_bounded(pos, Some(bounds));
                     return true;
                 }
             }
@@ -2939,7 +2945,7 @@ fn main() -> erigui_core::Result<()> {
     env_logger::init();
 
     let event_loop = EventLoop::new();
-    let mut renderer = Renderer::new(&event_loop, 1200, 800, "EriGui File Manager")?;
+    let mut renderer = Renderer::new(&event_loop, 1280, 860, "EriGui File Manager")?;
 
     let mut theme = Theme::dark();
     theme.colors.primary = Color::rgb(90, 160, 255);

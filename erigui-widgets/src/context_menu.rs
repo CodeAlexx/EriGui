@@ -95,16 +95,47 @@ impl ContextMenu {
     }
 
     pub fn show_at(&mut self, position: Point) {
-        self.position = position;
+        self.show_at_bounded(position, None);
+    }
+
+    pub fn show_at_bounded(&mut self, position: Point, viewport: Option<Rect>) {
         self.is_open = true;
         self.hover_index = None;
         self.submenu_open = None;
         self.submenu = None;
 
-        // Calculate bounds
+        // Calculate menu size
         let width = self.calculate_width();
         let height = self.calculate_height();
-        self.state.bounds = Rect::new(position.x, position.y, width, height);
+
+        // Adjust position to keep menu within viewport bounds
+        let (x, y) = if let Some(vp) = viewport {
+            let mut x = position.x;
+            let mut y = position.y;
+
+            // Keep within right edge
+            if x + width > vp.right() {
+                x = vp.right() - width;
+            }
+            // Keep within bottom edge
+            if y + height > vp.bottom() {
+                y = vp.bottom() - height;
+            }
+            // Keep within left edge
+            if x < vp.x() {
+                x = vp.x();
+            }
+            // Keep within top edge
+            if y < vp.y() {
+                y = vp.y();
+            }
+            (x, y)
+        } else {
+            (position.x, position.y)
+        };
+
+        self.position = Point::new(x, y);
+        self.state.bounds = Rect::new(x, y, width, height);
     }
 
     pub fn hide(&mut self) {

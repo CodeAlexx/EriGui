@@ -52,6 +52,9 @@ impl GlContext {
 
         let gl_display = gl_config.display();
 
+        // SAFETY: Creating OpenGL context requires unsafe as it interfaces with
+        // platform-specific graphics APIs. The gl_config and context_attributes
+        // are valid as they were just constructed above.
         let not_current_gl_context = unsafe {
             gl_display
                 .create_context(&gl_config, &context_attributes)
@@ -66,6 +69,9 @@ impl GlContext {
             NonZeroU32::new(height as u32).unwrap(),
         );
 
+        // SAFETY: Creating window surface requires unsafe for platform graphics API access.
+        // The raw_window_handle is valid as it comes from the window we just created,
+        // and the surface_attributes contain valid non-zero dimensions.
         let gl_surface = unsafe {
             gl_display
                 .create_window_surface(&gl_config, &surface_attributes)
@@ -93,6 +99,9 @@ impl GlContext {
             gl_display.get_proc_address(symbol.as_c_str()) as *const _
         });
 
+        // SAFETY: OpenGL state initialization. The GL context was just made current above,
+        // so all GL calls are valid. GetString returns a static string owned by OpenGL.
+        // All other calls configure render state with valid enum constants.
         unsafe {
             let version = gl::GetString(gl::VERSION);
             if !version.is_null() {
@@ -136,6 +145,7 @@ impl GlContext {
     }
 
     pub fn swap_buffers(&self) {
+        // SAFETY: GL error check uses valid GL context established at construction.
         unsafe {
             let err = gl::GetError();
             if err != gl::NO_ERROR {
@@ -146,6 +156,7 @@ impl GlContext {
     }
 
     pub fn clear(&self, color: Color) {
+        // SAFETY: Standard GL clear operation. Valid color values from to_gl_color().
         unsafe {
             let [r, g, b, a] = color.to_gl_color();
             gl::ClearColor(r, g, b, a);
@@ -155,6 +166,8 @@ impl GlContext {
 
     pub fn set_viewport(&mut self, size: Size) {
         self.viewport_size = size;
+        // SAFETY: Viewport and projection setup with valid size values.
+        // Uses standard GL enum constants for matrix operations.
         unsafe {
             gl::Viewport(0, 0, size.width, size.height);
             gl::MatrixMode(gl::PROJECTION);
@@ -176,6 +189,7 @@ impl GlContext {
     }
 
     pub fn set_color(&self, color: Color) {
+        // SAFETY: Sets current GL color state. Valid f32 color values from to_gl_color().
         unsafe {
             let [r, g, b, a] = color.to_gl_color();
             gl::Color4f(r, g, b, a);
@@ -183,6 +197,8 @@ impl GlContext {
     }
 
     pub fn draw_rect(&self, rect: Rect) {
+        // SAFETY: Immediate mode GL drawing. Begin/End pair is properly matched.
+        // Vertex coordinates are simple i32 values from Rect.
         unsafe {
             gl::Begin(gl::LINE_LOOP);
             gl::Vertex2i(rect.x(), rect.y());
@@ -194,6 +210,8 @@ impl GlContext {
     }
 
     pub fn fill_rect(&self, rect: Rect) {
+        // SAFETY: Immediate mode GL drawing. Begin/End pair is properly matched.
+        // Vertex coordinates are simple i32 values from Rect.
         unsafe {
             gl::Begin(gl::QUADS);
             gl::Vertex2i(rect.x(), rect.y());

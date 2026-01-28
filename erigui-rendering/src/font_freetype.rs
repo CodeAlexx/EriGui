@@ -64,7 +64,7 @@ impl FontRenderer {
         let mut max_height = 0;
 
         for ch in text.chars() {
-            if let Ok(_) = face.load_char(ch as usize, LoadFlag::DEFAULT) {
+            if face.load_char(ch as usize, LoadFlag::DEFAULT).is_ok() {
                 let glyph = face.glyph();
                 width += (glyph.advance().x >> 6) as i32;
 
@@ -109,7 +109,7 @@ impl FontRenderer {
                     // Set pixel size
                     face.set_pixel_sizes(0, size as u32).ok();
 
-                    if let Ok(_) = face.load_char(ch as usize, LoadFlag::RENDER) {
+                    if face.load_char(ch as usize, LoadFlag::RENDER).is_ok() {
                         let glyph = face.glyph();
                         let bitmap = glyph.bitmap();
 
@@ -167,6 +167,10 @@ impl FontRenderer {
     fn create_texture(&self, buffer: &[u8], width: usize, height: usize, pitch: i32) -> u32 {
         let mut texture_id = 0;
 
+        // SAFETY: OpenGL texture creation and upload. texture_id is initialized by
+        // GenTextures. The rgba_buffer is constructed with exact required size
+        // (width * height * 4 bytes) and its pointer is valid for the TexImage2D call.
+        // The buffer slice bounds are checked by the loop indices.
         unsafe {
             gl::GenTextures(1, &mut texture_id);
             gl::BindTexture(gl::TEXTURE_2D, texture_id);
@@ -184,7 +188,7 @@ impl FontRenderer {
 
             for y in 0..height {
                 for x in 0..width {
-                    let pixel = buffer[y * pitch.abs() as usize + x];
+                    let pixel = buffer[y * pitch.unsigned_abs() as usize + x];
                     rgba_buffer.push(255); // R
                     rgba_buffer.push(255); // G
                     rgba_buffer.push(255); // B
@@ -244,6 +248,9 @@ impl FontRenderer {
 
 impl Drop for FontRenderer {
     fn drop(&mut self) {
+        // SAFETY: Cleaning up OpenGL textures. Each texture_id was created by
+        // GenTextures in create_texture() and is valid. We own these resources
+        // and are responsible for deleting them.
         unsafe {
             for glyph in self.glyph_cache.values() {
                 gl::DeleteTextures(1, &glyph.texture_id);

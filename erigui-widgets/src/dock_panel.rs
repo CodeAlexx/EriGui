@@ -97,6 +97,24 @@ enum ResizeEdge {
     BottomRight,
 }
 
+/// Path to a split node in the dock tree, used for safe splitter ratio updates
+/// Each element is 0 for 'first' child or 1 for 'second' child
+#[derive(Debug, Clone)]
+struct SplitterPath {
+    /// Path indices from root to the split node (0 = first, 1 = second)
+    indices: Vec<usize>,
+}
+
+impl SplitterPath {
+    fn new() -> Self {
+        Self { indices: Vec::new() }
+    }
+
+    fn push(&mut self, index: usize) {
+        self.indices.push(index);
+    }
+}
+
 pub struct DockPanel {
     state: WidgetState,
     panels: HashMap<String, DockablePanel>,
@@ -108,9 +126,9 @@ pub struct DockPanel {
     drag_preview_rect: Option<Rect>,
     _drop_target: Option<DropTarget>,
 
-    // Splitter state
+    // Splitter state - now uses safe path-based navigation instead of raw pointers
     active_splitter: Option<usize>,
-    splitter_rects: Vec<(Rect, DockSplitDirection, *mut f32)>,
+    splitter_rects: Vec<(Rect, DockSplitDirection, SplitterPath)>,
 
     // Visual settings
     splitter_size: i32,
@@ -324,6 +342,12 @@ impl DockPanel {
     }
 
     fn layout_node(&mut self, node: &mut DockNode, rect: Rect, theme: &Theme) {
+        // Use path-based layout with empty initial path
+        let path = SplitterPath::new();
+        self.layout_node_with_path(node, rect, theme, path);
+    }
+
+    fn layout_node_with_path(&mut self, node: &mut DockNode, rect: Rect, theme: &Theme, current_path: SplitterPath) {
         match node {
             DockNode::Split {
                 direction,
@@ -331,6 +355,9 @@ impl DockPanel {
                 first,
                 second,
             } => {
+                // Store splitter info with current path (before recursing)
+                let splitter_path = current_path.clone();
+
                 match direction {
                     DockSplitDirection::Horizontal => {
                         let split_x = rect.x() + (rect.width() as f32 * *ratio) as i32;
@@ -342,7 +369,9 @@ impl DockPanel {
                             split_x - rect.x() - self.splitter_size / 2,
                             rect.height(),
                         );
-                        self.layout_node(first, first_rect, theme);
+                        let mut first_path = current_path.clone();
+                        first_path.push(0);
+                        self.layout_node_with_path(first, first_rect, theme, first_path);
 
                         // Layout second node
                         let second_rect = Rect::new(
@@ -351,9 +380,11 @@ impl DockPanel {
                             rect.right() - split_x - self.splitter_size / 2,
                             rect.height(),
                         );
-                        self.layout_node(second, second_rect, theme);
+                        let mut second_path = current_path;
+                        second_path.push(1);
+                        self.layout_node_with_path(second, second_rect, theme, second_path);
 
-                        // Store splitter rect
+                        // Store splitter rect with safe path reference
                         let splitter_rect = Rect::new(
                             split_x - self.splitter_size / 2,
                             rect.y(),
@@ -361,7 +392,7 @@ impl DockPanel {
                             rect.height(),
                         );
                         self.splitter_rects
-                            .push((splitter_rect, *direction, ratio as *mut f32));
+                            .push((splitter_rect, *direction, splitter_path));
                     }
                     DockSplitDirection::Vertical => {
                         let split_y = rect.y() + (rect.height() as f32 * *ratio) as i32;
@@ -373,7 +404,9 @@ impl DockPanel {
                             rect.width(),
                             split_y - rect.y() - self.splitter_size / 2,
                         );
-                        self.layout_node(first, first_rect, theme);
+                        let mut first_path = current_path.clone();
+                        first_path.push(0);
+                        self.layout_node_with_path(first, first_rect, theme, first_path);
 
                         // Layout second node
                         let second_rect = Rect::new(
@@ -382,9 +415,11 @@ impl DockPanel {
                             rect.width(),
                             rect.bottom() - split_y - self.splitter_size / 2,
                         );
-                        self.layout_node(second, second_rect, theme);
+                        let mut second_path = current_path;
+                        second_path.push(1);
+                        self.layout_node_with_path(second, second_rect, theme, second_path);
 
-                        // Store splitter rect
+                        // Store splitter rect with safe path reference
                         let splitter_rect = Rect::new(
                             rect.x(),
                             split_y - self.splitter_size / 2,
@@ -392,7 +427,7 @@ impl DockPanel {
                             self.splitter_size,
                         );
                         self.splitter_rects
-                            .push((splitter_rect, *direction, ratio as *mut f32));
+                            .push((splitter_rect, *direction, splitter_path));
                     }
                 }
             }
@@ -537,6 +572,34 @@ impl DockPanel {
 
             context.set_color(theme.colors.primary);
             context.draw_rect(*rect);
+        }
+    }
+
+    /// Safely update the ratio of a split node at the given path
+    /// Returns true if the ratio was successfully updated
+    fn update_ratio_at_path(&mut self, path: &SplitterPath, new_ratio: f32) -> bool {
+        Self::update_ratio_in_node(&mut self.root_node, &path.indices, new_ratio)
+    }
+
+    /// Recursively navigate to the split node and update its ratio
+    fn update_ratio_in_node(node: &mut DockNode, path: &[usize], new_ratio: f32) -> bool {
+        match node {
+            DockNode::Split { ratio, first, second, .. } => {
+                if path.is_empty() {
+                    // We're at the target split node, update the ratio
+                    *ratio = new_ratio.clamp(0.1, 0.9);
+                    true
+                } else {
+                    // Navigate deeper into the tree
+                    let (next_index, remaining_path) = (path[0], &path[1..]);
+                    match next_index {
+                        0 => Self::update_ratio_in_node(first, remaining_path, new_ratio),
+                        1 => Self::update_ratio_in_node(second, remaining_path, new_ratio),
+                        _ => false, // Invalid path index
+                    }
+                }
+            }
+            _ => false, // Can't update ratio on non-split nodes
         }
     }
 }
@@ -686,23 +749,22 @@ impl Widget for DockPanel {
             }
             Event::MouseMove(MouseMoveEvent { position, .. }) => {
                 if let Some(index) = self.active_splitter {
-                    if let Some((_rect, direction, ratio_ptr)) = self.splitter_rects.get(index) {
-                        unsafe {
-                            match direction {
-                                DockSplitDirection::Horizontal => {
-                                    let relative_x = position.x - self.state.bounds.x();
-                                    *(*ratio_ptr) = (relative_x as f32
-                                        / self.state.bounds.width() as f32)
-                                        .clamp(0.1, 0.9);
-                                }
-                                DockSplitDirection::Vertical => {
-                                    let relative_y = position.y - self.state.bounds.y();
-                                    *(*ratio_ptr) = (relative_y as f32
-                                        / self.state.bounds.height() as f32)
-                                        .clamp(0.1, 0.9);
-                                }
+                    if let Some((_rect, direction, splitter_path)) = self.splitter_rects.get(index) {
+                        // Calculate new ratio based on mouse position and direction
+                        let new_ratio = match direction {
+                            DockSplitDirection::Horizontal => {
+                                let relative_x = position.x - self.state.bounds.x();
+                                relative_x as f32 / self.state.bounds.width() as f32
                             }
-                        }
+                            DockSplitDirection::Vertical => {
+                                let relative_y = position.y - self.state.bounds.y();
+                                relative_y as f32 / self.state.bounds.height() as f32
+                            }
+                        };
+                        // Clone the path since we need to borrow self mutably
+                        let path = splitter_path.clone();
+                        // Safely update the ratio using path-based navigation
+                        self.update_ratio_at_path(&path, new_ratio);
                         return EventResult::Consumed;
                     }
                 }

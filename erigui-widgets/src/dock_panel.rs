@@ -1,10 +1,10 @@
+use crate::{TabControl, TabItem};
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButtonEvent, MouseButton,
-    Point, Rect, Size, Theme, Widget, WidgetId, WidgetState, MouseMoveEvent,
+    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent,
+    MouseMoveEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 use std::collections::HashMap;
-use crate::{TabControl, TabItem};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DockPosition {
@@ -42,17 +42,17 @@ impl DockablePanel {
             icon: None,
         }
     }
-    
+
     pub fn with_icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self
     }
-    
+
     pub fn with_can_close(mut self, can_close: bool) -> Self {
         self.can_close = can_close;
         self
     }
-    
+
     pub fn with_can_float(mut self, can_float: bool) -> Self {
         self.can_float = can_float;
         self
@@ -80,10 +80,11 @@ pub struct FloatingWindow {
     dragging: bool,
     drag_offset: Point,
     resizing: bool,
-    resize_edge: ResizeEdge,
+    _resize_edge: ResizeEdge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum ResizeEdge {
     None,
     Left,
@@ -101,27 +102,28 @@ pub struct DockPanel {
     panels: HashMap<String, DockablePanel>,
     root_node: DockNode,
     floating_windows: Vec<FloatingWindow>,
-    
+
     // Drag state
-    dragging_panel: Option<String>,
+    _dragging_panel: Option<String>,
     drag_preview_rect: Option<Rect>,
-    drop_target: Option<DropTarget>,
-    
+    _drop_target: Option<DropTarget>,
+
     // Splitter state
     active_splitter: Option<usize>,
     splitter_rects: Vec<(Rect, DockSplitDirection, *mut f32)>,
-    
+
     // Visual settings
     splitter_size: i32,
     tab_height: i32,
     title_height: i32,
-    
+
     // Callbacks
     on_panel_close: Option<Box<dyn FnMut(&str)>>,
     on_layout_change: Option<Box<dyn FnMut()>>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct DropTarget {
     rect: Rect,
     position: DockPosition,
@@ -135,9 +137,9 @@ impl DockPanel {
             panels: HashMap::new(),
             root_node: DockNode::Empty,
             floating_windows: Vec::new(),
-            dragging_panel: None,
+            _dragging_panel: None,
             drag_preview_rect: None,
-            drop_target: None,
+            _drop_target: None,
             active_splitter: None,
             splitter_rects: Vec::new(),
             splitter_size: 4,
@@ -147,21 +149,21 @@ impl DockPanel {
             on_layout_change: None,
         }
     }
-    
+
     pub fn with_on_panel_close<F: FnMut(&str) + 'static>(mut self, f: F) -> Self {
         self.on_panel_close = Some(Box::new(f));
         self
     }
-    
+
     pub fn with_on_layout_change<F: FnMut() + 'static>(mut self, f: F) -> Self {
         self.on_layout_change = Some(Box::new(f));
         self
     }
-    
+
     pub fn add_panel(&mut self, panel: DockablePanel, position: DockPosition) {
         let panel_id = panel.id.clone();
         self.panels.insert(panel_id.clone(), panel);
-        
+
         match position {
             DockPosition::Floating => {
                 // Add as floating window
@@ -171,7 +173,7 @@ impl DockPanel {
                     dragging: false,
                     drag_offset: Point::ZERO,
                     resizing: false,
-                    resize_edge: ResizeEdge::None,
+                    _resize_edge: ResizeEdge::None,
                 };
                 self.floating_windows.push(window);
             }
@@ -180,28 +182,28 @@ impl DockPanel {
                 self.add_to_dock_tree(panel_id, position);
             }
         }
-        
+
         if let Some(callback) = &mut self.on_layout_change {
             callback();
         }
     }
-    
+
     pub fn remove_panel(&mut self, panel_id: &str) -> Option<DockablePanel> {
         let panel = self.panels.remove(panel_id)?;
-        
+
         // Remove from floating windows
         self.floating_windows.retain(|w| w.panel_id != panel_id);
-        
+
         // Remove from dock tree
         self.remove_from_dock_tree(panel_id);
-        
+
         if let Some(callback) = &mut self.on_layout_change {
             callback();
         }
-        
+
         Some(panel)
     }
-    
+
     fn add_to_dock_tree(&mut self, panel_id: String, position: DockPosition) {
         match &mut self.root_node {
             DockNode::Empty => {
@@ -278,7 +280,7 @@ impl DockPanel {
             }
         }
     }
-    
+
     fn remove_from_dock_tree(&mut self, panel_id: &str) {
         // TODO: Implement proper tree cleanup
         let mut new_root = DockNode::Empty;
@@ -288,10 +290,14 @@ impl DockPanel {
             self.root_node = new_root;
         }
     }
-    
+
     fn remove_from_node(&mut self, node: &mut DockNode, panel_id: &str) -> bool {
         match node {
-            DockNode::Tabs { panels, active_index, .. } => {
+            DockNode::Tabs {
+                panels,
+                active_index,
+                ..
+            } => {
                 if let Some(pos) = panels.iter().position(|id| id == panel_id) {
                     panels.remove(pos);
                     if *active_index >= panels.len() && *active_index > 0 {
@@ -316,74 +322,85 @@ impl DockPanel {
         }
         false
     }
-    
+
     fn layout_node(&mut self, node: &mut DockNode, rect: Rect, theme: &Theme) {
         match node {
-            DockNode::Split { direction, ratio, first, second } => {
+            DockNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
                 match direction {
                     DockSplitDirection::Horizontal => {
                         let split_x = rect.x() + (rect.width() as f32 * *ratio) as i32;
-                        
+
                         // Layout first node
                         let first_rect = Rect::new(
                             rect.x(),
                             rect.y(),
                             split_x - rect.x() - self.splitter_size / 2,
-                            rect.height()
+                            rect.height(),
                         );
                         self.layout_node(first, first_rect, theme);
-                        
+
                         // Layout second node
                         let second_rect = Rect::new(
                             split_x + self.splitter_size / 2,
                             rect.y(),
                             rect.right() - split_x - self.splitter_size / 2,
-                            rect.height()
+                            rect.height(),
                         );
                         self.layout_node(second, second_rect, theme);
-                        
+
                         // Store splitter rect
                         let splitter_rect = Rect::new(
                             split_x - self.splitter_size / 2,
                             rect.y(),
                             self.splitter_size,
-                            rect.height()
+                            rect.height(),
                         );
-                        self.splitter_rects.push((splitter_rect, *direction, ratio as *mut f32));
+                        self.splitter_rects
+                            .push((splitter_rect, *direction, ratio as *mut f32));
                     }
                     DockSplitDirection::Vertical => {
                         let split_y = rect.y() + (rect.height() as f32 * *ratio) as i32;
-                        
+
                         // Layout first node
                         let first_rect = Rect::new(
                             rect.x(),
                             rect.y(),
                             rect.width(),
-                            split_y - rect.y() - self.splitter_size / 2
+                            split_y - rect.y() - self.splitter_size / 2,
                         );
                         self.layout_node(first, first_rect, theme);
-                        
+
                         // Layout second node
                         let second_rect = Rect::new(
                             rect.x(),
                             split_y + self.splitter_size / 2,
                             rect.width(),
-                            rect.bottom() - split_y - self.splitter_size / 2
+                            rect.bottom() - split_y - self.splitter_size / 2,
                         );
                         self.layout_node(second, second_rect, theme);
-                        
+
                         // Store splitter rect
                         let splitter_rect = Rect::new(
                             rect.x(),
                             split_y - self.splitter_size / 2,
                             rect.width(),
-                            self.splitter_size
+                            self.splitter_size,
                         );
-                        self.splitter_rects.push((splitter_rect, *direction, ratio as *mut f32));
+                        self.splitter_rects
+                            .push((splitter_rect, *direction, ratio as *mut f32));
                     }
                 }
             }
-            DockNode::Tabs { panels, tab_control, .. } => {
+            DockNode::Tabs {
+                panels,
+                tab_control,
+                ..
+            } => {
                 if !panels.is_empty() {
                     // Create tab items
                     let mut tab_items = Vec::new();
@@ -392,26 +409,27 @@ impl DockPanel {
                             tab_items.push(TabItem::new(panel.title.clone(), panel_id.clone()));
                         }
                     }
-                    
+
                     // Layout tab control
                     tab_control.set_tabs(tab_items);
-                    tab_control.layout(Rect::new(
-                        rect.x(),
-                        rect.y(),
-                        rect.width(),
-                        self.tab_height
-                    ), theme);
-                    
+                    tab_control.layout(
+                        Rect::new(rect.x(), rect.y(), rect.width(), self.tab_height),
+                        theme,
+                    );
+
                     // Layout active panel content
                     if let Some(active_tab) = tab_control.get_active_tab() {
                         if let Some(panel_id) = panels.get(active_tab) {
                             if let Some(panel) = self.panels.get_mut(panel_id) {
-                                panel.content.layout(Rect::new(
-                                    rect.x(),
-                                    rect.y() + self.tab_height,
-                                    rect.width(),
-                                    rect.height() - self.tab_height
-                                ), theme);
+                                panel.content.layout(
+                                    Rect::new(
+                                        rect.x(),
+                                        rect.y() + self.tab_height,
+                                        rect.width(),
+                                        rect.height() - self.tab_height,
+                                    ),
+                                    theme,
+                                );
                             }
                         }
                     }
@@ -420,18 +438,22 @@ impl DockPanel {
             DockNode::Empty => {}
         }
     }
-    
+
     fn draw_node(&self, node: &DockNode, context: &mut dyn DrawContext, theme: &Theme) {
         match node {
             DockNode::Split { first, second, .. } => {
                 self.draw_node(first, context, theme);
                 self.draw_node(second, context, theme);
             }
-            DockNode::Tabs { panels, tab_control, .. } => {
+            DockNode::Tabs {
+                panels,
+                tab_control,
+                ..
+            } => {
                 if !panels.is_empty() {
                     // Draw tab control
                     tab_control.draw(context, theme);
-                    
+
                     // Draw active panel content
                     if let Some(active_tab) = tab_control.get_active_tab() {
                         if let Some(panel_id) = panels.get(active_tab) {
@@ -445,74 +467,74 @@ impl DockPanel {
             DockNode::Empty => {}
         }
     }
-    
-    fn draw_floating_window(&self, window: &FloatingWindow, context: &mut dyn DrawContext, theme: &Theme) {
+
+    fn draw_floating_window(
+        &self,
+        window: &FloatingWindow,
+        context: &mut dyn DrawContext,
+        theme: &Theme,
+    ) {
         if let Some(panel) = self.panels.get(&window.panel_id) {
             // Draw window background
             context.set_color(theme.colors.surface);
             context.fill_rect(window.bounds);
-            
+
             // Draw title bar
             let title_rect = Rect::new(
                 window.bounds.x(),
                 window.bounds.y(),
                 window.bounds.width(),
-                self.title_height
+                self.title_height,
             );
-            
+
             context.set_color(theme.colors.primary);
             context.fill_rect(title_rect);
-            
+
             // Draw title text
             context.set_color(theme.colors.background);
             context.draw_text(
                 &panel.title,
-                Point::new(
-                    title_rect.x() + 8,
-                    title_rect.center().y + 4
-                ),
-                theme.typography.font_size_base
+                Point::new(title_rect.x() + 8, title_rect.center().y + 4),
+                theme.typography.font_size_base,
             );
-            
+
             // Draw close button if allowed
             if panel.can_close {
                 let close_rect = Rect::new(
                     title_rect.right() - self.title_height,
                     title_rect.y(),
                     self.title_height,
-                    self.title_height
+                    self.title_height,
                 );
-                
+
                 context.set_color(theme.colors.background);
                 context.draw_text(
                     "×",
-                    Point::new(
-                        close_rect.center().x - 4,
-                        close_rect.center().y + 6
-                    ),
-                    theme.typography.font_size_large
+                    Point::new(close_rect.center().x - 4, close_rect.center().y + 6),
+                    theme.typography.font_size_large,
                 );
             }
-            
+
             // Draw content
             panel.content.draw(context, theme);
-            
+
             // Draw window border
             context.set_color(theme.colors.border);
             context.draw_rect(window.bounds);
         }
     }
-    
+
+    #[allow(dead_code)]
     fn get_drop_target(&self, _position: Point) -> Option<DropTarget> {
         // TODO: Calculate drop targets based on mouse position
         None
     }
-    
+
     fn draw_drop_preview(&self, context: &mut dyn DrawContext, theme: &Theme) {
         if let Some(rect) = &self.drag_preview_rect {
             context.set_color(theme.colors.primary.with_alpha(64));
             context.fill_rect(*rect);
-            
+
             context.set_color(theme.colors.primary);
             context.draw_rect(*rect);
         }
@@ -523,24 +545,24 @@ impl Widget for DockPanel {
     fn id(&self) -> WidgetId {
         self.state.id
     }
-    
+
     fn measure(&self, constraints: &LayoutConstraints, _theme: &Theme) -> Size {
         Size::new(
             constraints.max_width.unwrap_or(800),
-            constraints.max_height.unwrap_or(600)
+            constraints.max_height.unwrap_or(600),
         )
     }
-    
+
     fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
         self.splitter_rects.clear();
-        
+
         // Layout dock tree - swap out root to avoid borrow issues
         let mut root = DockNode::Empty;
         std::mem::swap(&mut root, &mut self.root_node);
         self.layout_node(&mut root, rect, theme);
         std::mem::swap(&mut root, &mut self.root_node);
-        
+
         // Layout floating windows
         for window in &mut self.floating_windows {
             if let Some(panel) = self.panels.get_mut(&window.panel_id) {
@@ -548,67 +570,57 @@ impl Widget for DockPanel {
                     window.bounds.x(),
                     window.bounds.y() + self.title_height,
                     window.bounds.width(),
-                    window.bounds.height() - self.title_height
+                    window.bounds.height() - self.title_height,
                 );
                 panel.content.layout(content_rect, theme);
             }
         }
     }
-    
+
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
         if !self.state.visible {
             return;
         }
-        
+
         // Draw docked panels
         self.draw_node(&self.root_node, context, theme);
-        
+
         // Draw splitters
         for (rect, direction, _) in &self.splitter_rects {
             context.set_color(theme.colors.border);
             context.fill_rect(*rect);
-            
+
             // Draw handle
             context.set_color(theme.colors.text_secondary);
             let center = rect.center();
             match direction {
                 DockSplitDirection::Horizontal => {
                     for i in -1..=1 {
-                        context.fill_rect(Rect::new(
-                            center.x - 1,
-                            center.y + i * 6 - 1,
-                            2,
-                            2
-                        ));
+                        context.fill_rect(Rect::new(center.x - 1, center.y + i * 6 - 1, 2, 2));
                     }
                 }
                 DockSplitDirection::Vertical => {
                     for i in -1..=1 {
-                        context.fill_rect(Rect::new(
-                            center.x + i * 6 - 1,
-                            center.y - 1,
-                            2,
-                            2
-                        ));
+                        context.fill_rect(Rect::new(center.x + i * 6 - 1, center.y - 1, 2, 2));
                     }
                 }
             }
         }
-        
+
         // Draw floating windows
         for window in &self.floating_windows {
             self.draw_floating_window(window, context, theme);
         }
-        
+
         // Draw drag preview
         self.draw_drop_preview(context, theme);
     }
-    
+
     fn handle_event(&mut self, event: &Event, theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
             return EventResult::Ignored;
         }
-        
+
         // Handle floating window events
         for window in &mut self.floating_windows {
             match event {
@@ -622,14 +634,14 @@ impl Widget for DockPanel {
                         window.bounds.x(),
                         window.bounds.y(),
                         window.bounds.width(),
-                        self.title_height
+                        self.title_height,
                     );
-                    
+
                     if *pressed && title_rect.contains(*position) {
                         window.dragging = true;
                         window.drag_offset = Point::new(
                             position.x - window.bounds.x(),
-                            position.y - window.bounds.y()
+                            position.y - window.bounds.y(),
                         );
                         return EventResult::Consumed;
                     } else if !pressed {
@@ -643,7 +655,7 @@ impl Widget for DockPanel {
                             position.x - window.drag_offset.x,
                             position.y - window.drag_offset.y,
                             window.bounds.width(),
-                            window.bounds.height()
+                            window.bounds.height(),
                         );
                         return EventResult::Consumed;
                     }
@@ -651,7 +663,7 @@ impl Widget for DockPanel {
                 _ => {}
             }
         }
-        
+
         // Handle splitter dragging
         match event {
             Event::MouseButton(MouseButtonEvent {
@@ -679,11 +691,15 @@ impl Widget for DockPanel {
                             match direction {
                                 DockSplitDirection::Horizontal => {
                                     let relative_x = position.x - self.state.bounds.x();
-                                    *(*ratio_ptr) = (relative_x as f32 / self.state.bounds.width() as f32).clamp(0.1, 0.9);
+                                    *(*ratio_ptr) = (relative_x as f32
+                                        / self.state.bounds.width() as f32)
+                                        .clamp(0.1, 0.9);
                                 }
                                 DockSplitDirection::Vertical => {
                                     let relative_y = position.y - self.state.bounds.y();
-                                    *(*ratio_ptr) = (relative_y as f32 / self.state.bounds.height() as f32).clamp(0.1, 0.9);
+                                    *(*ratio_ptr) = (relative_y as f32
+                                        / self.state.bounds.height() as f32)
+                                        .clamp(0.1, 0.9);
                                 }
                             }
                         }
@@ -693,7 +709,7 @@ impl Widget for DockPanel {
             }
             _ => {}
         }
-        
+
         // Handle events in dock nodes - swap out root to avoid borrow issues
         let mut root = DockNode::Empty;
         std::mem::swap(&mut root, &mut self.root_node);
@@ -701,54 +717,59 @@ impl Widget for DockPanel {
         std::mem::swap(&mut root, &mut self.root_node);
         result
     }
-    
+
     fn bounds(&self) -> Rect {
         self.state.bounds
     }
-    
+
     fn set_bounds(&mut self, bounds: Rect) {
         self.state.bounds = bounds;
     }
-    
+
     fn is_visible(&self) -> bool {
         self.state.visible
     }
-    
+
     fn set_visible(&mut self, visible: bool) {
         self.state.visible = visible;
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.state.enabled
     }
-    
+
     fn set_enabled(&mut self, enabled: bool) {
         self.state.enabled = enabled;
     }
-    
+
     fn is_focused(&self) -> bool {
         self.state.focused
     }
-    
+
     fn set_focused(&mut self, focused: bool) {
         self.state.focused = focused;
     }
-    
+
     fn can_focus(&self) -> bool {
         false
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }
 
 impl DockPanel {
-    fn handle_node_event(&mut self, node: &mut DockNode, event: &Event, theme: &Theme) -> EventResult {
+    fn handle_node_event(
+        &mut self,
+        node: &mut DockNode,
+        event: &Event,
+        theme: &Theme,
+    ) -> EventResult {
         match node {
             DockNode::Split { first, second, .. } => {
                 let first_result = self.handle_node_event(first, event, theme);
@@ -757,10 +778,14 @@ impl DockPanel {
                 }
                 self.handle_node_event(second, event, theme)
             }
-            DockNode::Tabs { panels, tab_control, active_index } => {
+            DockNode::Tabs {
+                panels,
+                tab_control,
+                active_index,
+            } => {
                 // Handle tab control events
                 let tab_result = tab_control.handle_event(event, theme);
-                
+
                 // Update active index if tab changed
                 if let Some(new_active) = tab_control.get_active_tab() {
                     if new_active != *active_index {
@@ -768,7 +793,7 @@ impl DockPanel {
                         return EventResult::Consumed;
                     }
                 }
-                
+
                 // Handle panel content events
                 if let Some(panel_id) = panels.get(*active_index) {
                     if let Some(panel) = self.panels.get_mut(panel_id) {
@@ -778,7 +803,7 @@ impl DockPanel {
                         }
                     }
                 }
-                
+
                 tab_result
             }
             DockNode::Empty => EventResult::Ignored,

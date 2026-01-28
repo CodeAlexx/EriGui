@@ -1,9 +1,9 @@
+use crate::Icon;
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButtonEvent, MouseButton,
-    Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
+    Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
-use crate::Icon;
 
 pub struct AccordionPanel {
     pub id: WidgetId,
@@ -25,17 +25,17 @@ impl AccordionPanel {
             icon: None,
         }
     }
-    
+
     pub fn with_expanded(mut self, expanded: bool) -> Self {
         self.expanded = expanded;
         self
     }
-    
+
     pub fn with_icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self
     }
-    
+
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -50,12 +50,12 @@ pub struct Accordion {
     allow_multiple: bool,
     animate_expansion: bool,
     animation_speed: f32,
-    
+
     // Visual state
     hovered_panel: Option<usize>,
     pressed_panel: Option<usize>,
     panel_animations: Vec<f32>, // 0.0 = collapsed, 1.0 = expanded
-    
+
     // Callbacks
     on_panel_toggle: Option<Box<dyn FnMut(usize, bool)>>,
 }
@@ -76,7 +76,7 @@ impl Accordion {
             on_panel_toggle: None,
         }
     }
-    
+
     pub fn with_panels(mut self, panels: Vec<AccordionPanel>) -> Self {
         self.panel_animations = vec![0.0; panels.len()];
         for (i, panel) in panels.iter().enumerate() {
@@ -87,37 +87,38 @@ impl Accordion {
         self.panels = panels;
         self
     }
-    
+
     pub fn with_allow_multiple(mut self, allow: bool) -> Self {
         self.allow_multiple = allow;
         self
     }
-    
+
     pub fn with_header_height(mut self, height: i32) -> Self {
         self.header_height = height;
         self
     }
-    
+
     pub fn with_animation(mut self, enabled: bool) -> Self {
         self.animate_expansion = enabled;
         self
     }
-    
+
     pub fn with_animation_speed(mut self, speed: f32) -> Self {
         self.animation_speed = speed.clamp(0.05, 1.0);
         self
     }
-    
+
     pub fn with_on_toggle<F: FnMut(usize, bool) + 'static>(mut self, f: F) -> Self {
         self.on_panel_toggle = Some(Box::new(f));
         self
     }
-    
+
     pub fn add_panel(&mut self, panel: AccordionPanel) {
-        self.panel_animations.push(if panel.expanded { 1.0 } else { 0.0 });
+        self.panel_animations
+            .push(if panel.expanded { 1.0 } else { 0.0 });
         self.panels.push(panel);
     }
-    
+
     pub fn remove_panel(&mut self, index: usize) -> Option<AccordionPanel> {
         if index < self.panels.len() {
             self.panel_animations.remove(index);
@@ -126,14 +127,14 @@ impl Accordion {
             None
         }
     }
-    
+
     pub fn toggle_panel(&mut self, index: usize) {
         if index >= self.panels.len() || !self.panels[index].enabled {
             return;
         }
-        
+
         let new_state = !self.panels[index].expanded;
-        
+
         if !self.allow_multiple && new_state {
             // Collapse all other panels
             for (i, panel) in self.panels.iter_mut().enumerate() {
@@ -142,26 +143,26 @@ impl Accordion {
                 }
             }
         }
-        
+
         self.panels[index].expanded = new_state;
-        
+
         if let Some(callback) = &mut self.on_panel_toggle {
             callback(index, new_state);
         }
     }
-    
+
     pub fn expand_panel(&mut self, index: usize) {
         if index < self.panels.len() && self.panels[index].enabled && !self.panels[index].expanded {
             self.toggle_panel(index);
         }
     }
-    
+
     pub fn collapse_panel(&mut self, index: usize) {
         if index < self.panels.len() && self.panels[index].expanded {
             self.toggle_panel(index);
         }
     }
-    
+
     pub fn expand_all(&mut self) {
         if self.allow_multiple {
             for panel in &mut self.panels {
@@ -171,18 +172,18 @@ impl Accordion {
             }
         }
     }
-    
+
     pub fn collapse_all(&mut self) {
         for panel in &mut self.panels {
             panel.expanded = false;
         }
     }
-    
+
     fn update_animations(&mut self) {
         for (i, panel) in self.panels.iter().enumerate() {
             let target = if panel.expanded { 1.0 } else { 0.0 };
             let current = self.panel_animations[i];
-            
+
             if (target - current).abs() > 0.01 {
                 let diff = target - current;
                 self.panel_animations[i] = current + diff * self.animation_speed;
@@ -191,12 +192,12 @@ impl Accordion {
             }
         }
     }
-    
+
     fn draw_header(&self, context: &mut dyn DrawContext, theme: &Theme, index: usize, rect: Rect) {
         let panel = &self.panels[index];
         let is_hovered = self.hovered_panel == Some(index);
         let is_pressed = self.pressed_panel == Some(index);
-        
+
         // Draw header background
         let bg_color = if !panel.enabled {
             theme.colors.surface_variant
@@ -207,45 +208,46 @@ impl Accordion {
         } else {
             theme.colors.surface
         };
-        
+
         context.set_color(bg_color);
         context.fill_rect(rect);
-        
+
         // Draw bottom border
         context.set_color(theme.colors.border);
-        context.fill_rect(Rect::new(
-            rect.x(),
-            rect.bottom() - 1,
-            rect.width(),
-            1
-        ));
-        
+        context.fill_rect(Rect::new(rect.x(), rect.bottom() - 1, rect.width(), 1));
+
         let padding = 12;
         let mut x = rect.x() + padding;
-        
+
         // Draw expand/collapse icon
         let icon_size = 16;
         let icon_y = rect.y() + (rect.height() - icon_size) / 2;
         let icon_rect = Rect::new(x, icon_y, icon_size, icon_size);
-        
+
         let icon_color = if panel.enabled {
             theme.colors.text
         } else {
             theme.colors.text_disabled
         };
-        
+
         // Draw icon - chevron down when expanded, right when collapsed
         if self.panel_animations[index] > 0.5 {
             // Draw chevron pointing down
             let center = icon_rect.center();
             let size = icon_rect.width() as f32 * 0.5;
-            
+
             let points = vec![
-                Point::new((center.x as f32 - size * 0.5) as i32, (center.y as f32 - size * 0.3) as i32),
+                Point::new(
+                    (center.x as f32 - size * 0.5) as i32,
+                    (center.y as f32 - size * 0.3) as i32,
+                ),
                 Point::new(center.x, (center.y as f32 + size * 0.3) as i32),
-                Point::new((center.x as f32 + size * 0.5) as i32, (center.y as f32 - size * 0.3) as i32),
+                Point::new(
+                    (center.x as f32 + size * 0.5) as i32,
+                    (center.y as f32 - size * 0.3) as i32,
+                ),
             ];
-            
+
             context.set_color(icon_color);
             context.set_line_width(2);
             context.draw_line(points[0], points[1], 2);
@@ -253,13 +255,13 @@ impl Accordion {
         } else {
             Icon::draw_chevron_right(context, icon_rect, icon_color);
         }
-        
+
         x += icon_size + padding;
-        
+
         // Draw custom icon if provided
         if let Some(icon_name) = &panel.icon {
             let custom_icon_rect = Rect::new(x, icon_y, icon_size, icon_size);
-            
+
             // Draw icon based on name
             match icon_name.as_str() {
                 "folder" => Icon::draw_folder(context, custom_icon_rect, icon_color),
@@ -268,22 +270,22 @@ impl Accordion {
                 "palette" => Icon::draw_palette(context, custom_icon_rect, icon_color),
                 _ => {}
             }
-            
+
             x += icon_size + padding;
         }
-        
+
         // Draw title
         let text_color = if panel.enabled {
             theme.colors.text
         } else {
             theme.colors.text_disabled
         };
-        
+
         context.set_color(text_color);
         context.draw_text(
             &panel.title,
             Point::new(x, rect.center().y + theme.typography.font_size_base / 2 - 2),
-            theme.typography.font_size_base
+            theme.typography.font_size_base,
         );
     }
 }
@@ -292,15 +294,15 @@ impl Widget for Accordion {
     fn id(&self) -> WidgetId {
         self.state.id
     }
-    
+
     fn measure(&self, constraints: &LayoutConstraints, theme: &Theme) -> Size {
         let width = constraints.max_width.unwrap_or(300);
         let mut height = 0;
-        
+
         // Calculate total height including animations
         for (i, panel) in self.panels.iter().enumerate() {
             height += self.header_height;
-            
+
             if self.panel_animations[i] > 0.0 {
                 let content_size = panel.content.measure(
                     &LayoutConstraints {
@@ -309,30 +311,30 @@ impl Widget for Accordion {
                         min_height: None,
                         max_height: None,
                     },
-                    theme
+                    theme,
                 );
-                
+
                 height += (content_size.height as f32 * self.panel_animations[i]) as i32;
             }
-            
+
             if i < self.panels.len() - 1 {
                 height += self.spacing;
             }
         }
-        
+
         Size::new(width, height)
     }
-    
+
     fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
-        
+
         let mut y = rect.y();
         let panels_count = self.panels.len();
-        
+
         for i in 0..panels_count {
             // Layout header
             y += self.header_height;
-            
+
             // Layout content if expanded
             if self.panel_animations[i] > 0.0 {
                 let content_constraints = LayoutConstraints {
@@ -341,95 +343,93 @@ impl Widget for Accordion {
                     min_height: None,
                     max_height: None,
                 };
-                
+
                 let content_size = self.panels[i].content.measure(&content_constraints, theme);
                 let content_height = (content_size.height as f32 * self.panel_animations[i]) as i32;
-                
+
                 if content_height > 0 {
-                    self.panels[i].content.layout(Rect::new(
-                        rect.x(),
-                        y,
-                        rect.width(),
-                        content_size.height
-                    ), theme);
+                    self.panels[i].content.layout(
+                        Rect::new(rect.x(), y, rect.width(), content_size.height),
+                        theme,
+                    );
                 }
-                
+
                 y += content_height;
             }
-            
+
             if i < panels_count - 1 {
                 y += self.spacing;
             }
         }
     }
-    
+
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
         if !self.state.visible {
             return;
         }
-        
+
         let mut y = self.state.bounds.y();
-        
+
         for (i, panel) in self.panels.iter().enumerate() {
             // Draw header
             let header_rect = Rect::new(
                 self.state.bounds.x(),
                 y,
                 self.state.bounds.width(),
-                self.header_height
+                self.header_height,
             );
-            
+
             self.draw_header(context, theme, i, header_rect);
             y += self.header_height;
-            
+
             // Draw content if visible
             if self.panel_animations[i] > 0.0 {
                 let content_height = panel.content.bounds().height();
                 let visible_height = (content_height as f32 * self.panel_animations[i]) as i32;
-                
+
                 if visible_height > 0 {
                     // Clip content area
                     context.push_clip_rect(Rect::new(
                         self.state.bounds.x(),
                         y,
                         self.state.bounds.width(),
-                        visible_height
+                        visible_height,
                     ));
-                    
+
                     // Draw content background
                     context.set_color(theme.colors.background);
                     context.fill_rect(Rect::new(
                         self.state.bounds.x(),
                         y,
                         self.state.bounds.width(),
-                        visible_height
+                        visible_height,
                     ));
-                    
+
                     // Draw content
                     panel.content.draw(context, theme);
-                    
+
                     context.pop_clip_rect();
-                    
+
                     y += visible_height;
                 }
             }
-            
+
             if i < self.panels.len() - 1 {
                 y += self.spacing;
             }
         }
     }
-    
+
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
             return EventResult::Ignored;
         }
-        
+
         // Update animations
         if self.animate_expansion {
             self.update_animations();
         }
-        
+
         match event {
             Event::MouseButton(MouseButtonEvent {
                 button: MouseButton::Left,
@@ -440,18 +440,18 @@ impl Widget for Accordion {
                 if !self.state.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
-                
+
                 // Find which header was clicked
                 let mut y = self.state.bounds.y();
-                
+
                 for (i, panel) in self.panels.iter().enumerate() {
                     let header_rect = Rect::new(
                         self.state.bounds.x(),
                         y,
                         self.state.bounds.width(),
-                        self.header_height
+                        self.header_height,
                     );
-                    
+
                     if header_rect.contains(*position) && panel.enabled {
                         if *pressed {
                             self.pressed_panel = Some(i);
@@ -461,20 +461,21 @@ impl Widget for Accordion {
                         }
                         return EventResult::Consumed;
                     }
-                    
+
                     y += self.header_height;
-                    
+
                     if self.panel_animations[i] > 0.0 {
                         let content_height = panel.content.bounds().height();
-                        let visible_height = (content_height as f32 * self.panel_animations[i]) as i32;
+                        let visible_height =
+                            (content_height as f32 * self.panel_animations[i]) as i32;
                         y += visible_height;
                     }
-                    
+
                     if i < self.panels.len() - 1 {
                         y += self.spacing;
                     }
                 }
-                
+
                 if !pressed {
                     self.pressed_panel = None;
                 }
@@ -484,42 +485,43 @@ impl Widget for Accordion {
                     self.hovered_panel = None;
                     return EventResult::Ignored;
                 }
-                
+
                 // Find which header is hovered
                 let mut y = self.state.bounds.y();
                 let mut found_hover = false;
-                
+
                 for (i, panel) in self.panels.iter().enumerate() {
                     let header_rect = Rect::new(
                         self.state.bounds.x(),
                         y,
                         self.state.bounds.width(),
-                        self.header_height
+                        self.header_height,
                     );
-                    
+
                     if header_rect.contains(move_event.position) {
                         self.hovered_panel = Some(i);
                         found_hover = true;
                         break;
                     }
-                    
+
                     y += self.header_height;
-                    
+
                     if self.panel_animations[i] > 0.0 {
                         let content_height = panel.content.bounds().height();
-                        let visible_height = (content_height as f32 * self.panel_animations[i]) as i32;
+                        let visible_height =
+                            (content_height as f32 * self.panel_animations[i]) as i32;
                         y += visible_height;
                     }
-                    
+
                     if i < self.panels.len() - 1 {
                         y += self.spacing;
                     }
                 }
-                
+
                 if !found_hover {
                     self.hovered_panel = None;
                 }
-                
+
                 return EventResult::Consumed;
             }
             _ => {
@@ -535,50 +537,50 @@ impl Widget for Accordion {
                 }
             }
         }
-        
+
         EventResult::Ignored
     }
-    
+
     fn bounds(&self) -> Rect {
         self.state.bounds
     }
-    
+
     fn set_bounds(&mut self, bounds: Rect) {
         self.state.bounds = bounds;
     }
-    
+
     fn is_visible(&self) -> bool {
         self.state.visible
     }
-    
+
     fn set_visible(&mut self, visible: bool) {
         self.state.visible = visible;
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.state.enabled
     }
-    
+
     fn set_enabled(&mut self, enabled: bool) {
         self.state.enabled = enabled;
     }
-    
+
     fn is_focused(&self) -> bool {
         self.state.focused
     }
-    
+
     fn set_focused(&mut self, focused: bool) {
         self.state.focused = focused;
     }
-    
+
     fn can_focus(&self) -> bool {
         false
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

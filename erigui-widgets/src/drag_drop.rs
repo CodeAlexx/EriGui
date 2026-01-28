@@ -38,8 +38,14 @@ impl DragDropManager {
             drag_effect: DragDropEffect::None,
         }
     }
-    
-    pub fn start_drag(&mut self, source: WidgetId, data_type: String, data: Box<dyn Any + Send + Sync>, offset: Point) {
+
+    pub fn start_drag(
+        &mut self,
+        source: WidgetId,
+        data_type: String,
+        data: Box<dyn Any + Send + Sync>,
+        offset: Point,
+    ) {
         self.active_drag = Some(DragData {
             source_widget: source,
             data_type,
@@ -49,50 +55,50 @@ impl DragDropManager {
         self.drag_offset = offset;
         self.drag_effect = DragDropEffect::Move;
     }
-    
+
     pub fn update_drag_position(&mut self, position: Point) {
         self.drag_position = position;
     }
-    
+
     pub fn register_drop_target(&mut self, widget: WidgetId, accepted_types: Vec<String>) {
         self.drop_targets.insert(widget, accepted_types);
     }
-    
+
     pub fn unregister_drop_target(&mut self, widget: WidgetId) {
         self.drop_targets.remove(&widget);
     }
-    
+
     pub fn is_dragging(&self) -> bool {
         self.active_drag.is_some()
     }
-    
+
     pub fn get_drag_data(&self) -> Option<&DragData> {
         self.active_drag.as_ref()
     }
-    
+
     pub fn get_drag_position(&self) -> Point {
         self.drag_position
     }
-    
+
     pub fn get_drag_visual_position(&self) -> Point {
         Point::new(
             self.drag_position.x - self.drag_offset.x,
-            self.drag_position.y - self.drag_offset.y
+            self.drag_position.y - self.drag_offset.y,
         )
     }
-    
+
     pub fn check_drop_target(&mut self, widget: WidgetId, bounds: Rect) -> bool {
         if !self.is_dragging() {
             return false;
         }
-        
+
         if !bounds.contains(self.drag_position) {
             if self.current_drop_target == Some(widget) {
                 self.current_drop_target = None;
             }
             return false;
         }
-        
+
         if let Some(drag_data) = &self.active_drag {
             if let Some(accepted_types) = self.drop_targets.get(&widget) {
                 if accepted_types.contains(&drag_data.data_type) {
@@ -101,27 +107,27 @@ impl DragDropManager {
                 }
             }
         }
-        
+
         false
     }
-    
+
     pub fn get_current_drop_target(&self) -> Option<WidgetId> {
         self.current_drop_target
     }
-    
+
     pub fn get_drag_effect(&self) -> DragDropEffect {
         self.drag_effect
     }
-    
+
     pub fn set_drag_effect(&mut self, effect: DragDropEffect) {
         self.drag_effect = effect;
     }
-    
+
     pub fn complete_drop(&mut self) -> Option<DragData> {
         self.current_drop_target = None;
         self.active_drag.take()
     }
-    
+
     pub fn cancel_drag(&mut self) {
         self.active_drag = None;
         self.current_drop_target = None;
@@ -135,9 +141,10 @@ use std::sync::{Mutex, OnceLock};
 static DRAG_DROP_MANAGER: OnceLock<Mutex<DragDropManager>> = OnceLock::new();
 
 pub fn drag_drop_manager() -> std::sync::MutexGuard<'static, DragDropManager> {
-    DRAG_DROP_MANAGER.get_or_init(|| {
-        Mutex::new(DragDropManager::new())
-    }).lock().unwrap()
+    DRAG_DROP_MANAGER
+        .get_or_init(|| Mutex::new(DragDropManager::new()))
+        .lock()
+        .unwrap()
 }
 
 // Trait for widgets that support drag and drop

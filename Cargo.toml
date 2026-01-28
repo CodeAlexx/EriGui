@@ -21,15 +21,15 @@ anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
 
-# Graphics dependencies
+# Graphics dependencies (Wayland-only; avoid pulling X11 back in)
 gl = "0.14"
-glutin = "0.30"
-glutin-winit = "0.3"
-winit = "0.28"
+glutin = { version = "0.30", default-features = false, features = ["egl", "wayland", "x11", "glx"] }
+glutin-winit = { version = "0.3", default-features = false, features = ["egl", "wayland", "x11"] }
+winit = { version = "0.28", default-features = false, features = ["wayland", "wayland-dlopen", "x11"] }
 raw-window-handle = "0.5"
 
 # Font rendering - use freetype for proper font rendering
-freetype-rs = "0.7"
+freetype-rs = "0.38"
 
 # Math and utilities
 glam = "0.29"

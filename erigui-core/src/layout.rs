@@ -15,7 +15,7 @@ impl LayoutConstraints {
         min_height: None,
         max_height: None,
     };
-    
+
     pub fn bounded(width: i32, height: i32) -> Self {
         Self {
             min_width: Some(width),
@@ -24,47 +24,49 @@ impl LayoutConstraints {
             max_height: Some(height),
         }
     }
-    
+
     pub fn with_max_width(self, width: i32) -> Self {
         Self {
             max_width: Some(width),
             ..self
         }
     }
-    
+
     pub fn with_max_height(self, height: i32) -> Self {
         Self {
             max_height: Some(height),
             ..self
         }
     }
-    
+
     pub fn with_min_width(self, width: i32) -> Self {
         Self {
             min_width: Some(width),
             ..self
         }
     }
-    
+
     pub fn with_min_height(self, height: i32) -> Self {
         Self {
             min_height: Some(height),
             ..self
         }
     }
-    
+
     pub fn constrain(&self, size: Size) -> Size {
-        let width = size.width
+        let width = size
+            .width
             .max(self.min_width.unwrap_or(0))
             .min(self.max_width.unwrap_or(i32::MAX));
-            
-        let height = size.height
+
+        let height = size
+            .height
             .max(self.min_height.unwrap_or(0))
             .min(self.max_height.unwrap_or(i32::MAX));
-            
+
         Size::new(width, height)
     }
-    
+
     pub fn loosen(&self) -> Self {
         Self {
             min_width: None,
@@ -72,7 +74,7 @@ impl LayoutConstraints {
             ..*self
         }
     }
-    
+
     pub fn tighten(&self, size: Size) -> Self {
         Self {
             min_width: Some(size.width),
@@ -81,11 +83,11 @@ impl LayoutConstraints {
             max_height: Some(size.height),
         }
     }
-    
+
     pub fn deflate(&self, margins: Margins) -> Self {
         let horizontal = margins.horizontal();
         let vertical = margins.vertical();
-        
+
         Self {
             min_width: self.min_width.map(|w| (w - horizontal).max(0)),
             max_width: self.max_width.map(|w| (w - horizontal).max(0)),
@@ -140,7 +142,7 @@ impl FlexChild {
             max_size: None,
         }
     }
-    
+
     pub fn fixed() -> Self {
         Self {
             flex: 0.0,

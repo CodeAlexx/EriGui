@@ -1,15 +1,15 @@
-use erigui_core::{Color, Point, Rect, Size, Result};
+use erigui_core::{Color, Point, Rect, Result, Size};
+use glutin::config::ConfigTemplateBuilder;
 use glutin::context::{ContextAttributesBuilder, PossiblyCurrentContext};
 use glutin::display::GetGlDisplay;
-use glutin::surface::{Surface, SurfaceAttributesBuilder, WindowSurface, SwapInterval};
-use glutin::config::ConfigTemplateBuilder;
 use glutin::prelude::*;
+use glutin::surface::{Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
 use glutin_winit::DisplayBuilder;
 use raw_window_handle::HasRawWindowHandle;
+use std::ffi::CString;
+use std::num::NonZeroU32;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
-use std::num::NonZeroU32;
-use std::ffi::CString;
 
 use crate::gl;
 
@@ -22,9 +22,6 @@ pub struct GlContext {
 
 impl GlContext {
     pub fn new(event_loop: &EventLoop<()>, width: i32, height: i32, title: &str) -> Result<Self> {
-        // Force Wayland backend only
-        std::env::set_var("WINIT_UNIX_BACKEND", "wayland");
-        
         let window_builder = WindowBuilder::new()
             .with_title(title)
             .with_inner_size(winit::dpi::LogicalSize::new(width as f64, height as f64));
@@ -39,7 +36,9 @@ impl GlContext {
             .build(event_loop, template, |configs| {
                 configs.max_by_key(|c| c.num_samples()).unwrap()
             })
-            .map_err(|e| erigui_core::EriGuiError::OpenGLInit(format!("Failed to create display: {}", e)))?;
+            .map_err(|e| {
+                erigui_core::EriGuiError::OpenGLInit(format!("Failed to create display: {}", e))
+            })?;
 
         let window = window.ok_or_else(|| {
             erigui_core::EriGuiError::WindowCreation("Failed to create window".into())
@@ -54,8 +53,11 @@ impl GlContext {
         let gl_display = gl_config.display();
 
         let not_current_gl_context = unsafe {
-            gl_display.create_context(&gl_config, &context_attributes)
-                .map_err(|e| erigui_core::EriGuiError::OpenGLInit(format!("Failed to create context: {}", e)))?
+            gl_display
+                .create_context(&gl_config, &context_attributes)
+                .map_err(|e| {
+                    erigui_core::EriGuiError::OpenGLInit(format!("Failed to create context: {}", e))
+                })?
         };
 
         let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
@@ -65,16 +67,26 @@ impl GlContext {
         );
 
         let gl_surface = unsafe {
-            gl_display.create_window_surface(&gl_config, &surface_attributes)
-                .map_err(|e| erigui_core::EriGuiError::OpenGLInit(format!("Failed to create surface: {}", e)))?
+            gl_display
+                .create_window_surface(&gl_config, &surface_attributes)
+                .map_err(|e| {
+                    erigui_core::EriGuiError::OpenGLInit(format!("Failed to create surface: {}", e))
+                })?
         };
 
         let gl_context = not_current_gl_context
             .make_current(&gl_surface)
-            .map_err(|e| erigui_core::EriGuiError::OpenGLInit(format!("Failed to make context current: {}", e)))?;
+            .map_err(|e| {
+                erigui_core::EriGuiError::OpenGLInit(format!(
+                    "Failed to make context current: {}",
+                    e
+                ))
+            })?;
 
         // Set vsync
-        gl_surface.set_swap_interval(&gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap())).ok();
+        gl_surface
+            .set_swap_interval(&gl_context, SwapInterval::Wait(NonZeroU32::new(1).unwrap()))
+            .ok();
 
         gl::load_with(|symbol| {
             let symbol = CString::new(symbol).unwrap();
@@ -87,24 +99,24 @@ impl GlContext {
                 let version_str = std::ffi::CStr::from_ptr(version as *const i8).to_string_lossy();
                 println!("OpenGL Version: {}", version_str);
             }
-            
+
             gl::Enable(gl::BLEND);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-            
+
             gl::Viewport(0, 0, width, height);
-            
+
             // Set up 2D orthographic projection
             let err = gl::GetError();
             if err != gl::NO_ERROR {
                 println!("GL Error before matrix setup: 0x{:x}", err);
             }
-            
+
             gl::MatrixMode(gl::PROJECTION);
             gl::LoadIdentity();
             gl::Ortho(0.0, width as f64, height as f64, 0.0, -1.0, 1.0);
             gl::MatrixMode(gl::MODELVIEW);
             gl::LoadIdentity();
-            
+
             let err = gl::GetError();
             if err != gl::NO_ERROR {
                 println!("GL Error after matrix setup: 0x{:x}", err);
@@ -205,7 +217,7 @@ impl GlContext {
 
     pub fn draw_circle(&self, center: Point, radius: i32, segments: i32) {
         use std::f32::consts::PI;
-        
+
         unsafe {
             gl::Begin(gl::LINE_LOOP);
             for i in 0..segments {
@@ -220,7 +232,7 @@ impl GlContext {
 
     pub fn fill_circle(&self, center: Point, radius: i32, segments: i32) {
         use std::f32::consts::PI;
-        
+
         unsafe {
             gl::Begin(gl::TRIANGLE_FAN);
             gl::Vertex2i(center.x, center.y);
@@ -251,19 +263,19 @@ impl GlContext {
             gl::Disable(gl::SCISSOR_TEST);
         }
     }
-    
+
     pub fn draw_rounded_rect(&self, rect: Rect, corner_radius: i32) {
         use std::f32::consts::PI;
-        
+
         let radius = corner_radius.min(rect.width() / 2).min(rect.height() / 2);
         if radius <= 0 {
             self.draw_rect(rect);
             return;
         }
-        
+
         unsafe {
             gl::Begin(gl::LINE_LOOP);
-            
+
             // Top-right corner
             for i in 0..=10 {
                 let angle = (i as f32 / 10.0) * PI / 2.0;
@@ -271,7 +283,7 @@ impl GlContext {
                 let y = rect.y() + radius - (radius as f32 * angle.sin()) as i32;
                 gl::Vertex2i(x, y);
             }
-            
+
             // Top-left corner
             for i in 0..=10 {
                 let angle = PI / 2.0 + (i as f32 / 10.0) * PI / 2.0;
@@ -279,7 +291,7 @@ impl GlContext {
                 let y = rect.y() + radius - (radius as f32 * angle.sin()) as i32;
                 gl::Vertex2i(x, y);
             }
-            
+
             // Bottom-left corner
             for i in 0..=10 {
                 let angle = PI + (i as f32 / 10.0) * PI / 2.0;
@@ -287,7 +299,7 @@ impl GlContext {
                 let y = rect.bottom() - radius - (radius as f32 * angle.sin()) as i32;
                 gl::Vertex2i(x, y);
             }
-            
+
             // Bottom-right corner
             for i in 0..=10 {
                 let angle = 3.0 * PI / 2.0 + (i as f32 / 10.0) * PI / 2.0;
@@ -295,20 +307,20 @@ impl GlContext {
                 let y = rect.bottom() - radius - (radius as f32 * angle.sin()) as i32;
                 gl::Vertex2i(x, y);
             }
-            
+
             gl::End();
         }
     }
-    
+
     pub fn fill_rounded_rect(&self, rect: Rect, corner_radius: i32) {
         use std::f32::consts::PI;
-        
+
         let radius = corner_radius.min(rect.width() / 2).min(rect.height() / 2);
         if radius <= 0 {
             self.fill_rect(rect);
             return;
         }
-        
+
         unsafe {
             // Draw center rectangle
             gl::Begin(gl::QUADS);
@@ -317,7 +329,7 @@ impl GlContext {
             gl::Vertex2i(rect.right() - radius, rect.bottom());
             gl::Vertex2i(rect.x() + radius, rect.bottom());
             gl::End();
-            
+
             // Draw left rectangle
             gl::Begin(gl::QUADS);
             gl::Vertex2i(rect.x(), rect.y() + radius);
@@ -325,7 +337,7 @@ impl GlContext {
             gl::Vertex2i(rect.x() + radius, rect.bottom() - radius);
             gl::Vertex2i(rect.x(), rect.bottom() - radius);
             gl::End();
-            
+
             // Draw right rectangle
             gl::Begin(gl::QUADS);
             gl::Vertex2i(rect.right() - radius, rect.y() + radius);
@@ -333,7 +345,7 @@ impl GlContext {
             gl::Vertex2i(rect.right(), rect.bottom() - radius);
             gl::Vertex2i(rect.right() - radius, rect.bottom() - radius);
             gl::End();
-            
+
             // Draw corners
             // Top-right
             gl::Begin(gl::TRIANGLE_FAN);
@@ -345,7 +357,7 @@ impl GlContext {
                 gl::Vertex2i(x, y);
             }
             gl::End();
-            
+
             // Top-left
             gl::Begin(gl::TRIANGLE_FAN);
             gl::Vertex2i(rect.x() + radius, rect.y() + radius);
@@ -356,7 +368,7 @@ impl GlContext {
                 gl::Vertex2i(x, y);
             }
             gl::End();
-            
+
             // Bottom-left
             gl::Begin(gl::TRIANGLE_FAN);
             gl::Vertex2i(rect.x() + radius, rect.bottom() - radius);
@@ -367,7 +379,7 @@ impl GlContext {
                 gl::Vertex2i(x, y);
             }
             gl::End();
-            
+
             // Bottom-right
             gl::Begin(gl::TRIANGLE_FAN);
             gl::Vertex2i(rect.right() - radius, rect.bottom() - radius);
@@ -380,20 +392,26 @@ impl GlContext {
             gl::End();
         }
     }
-    
-    pub fn draw_gradient_rect(&self, rect: Rect, top_color: Color, bottom_color: Color, horizontal: bool) {
+
+    pub fn draw_gradient_rect(
+        &self,
+        rect: Rect,
+        top_color: Color,
+        bottom_color: Color,
+        horizontal: bool,
+    ) {
         unsafe {
             gl::Begin(gl::QUADS);
-            
+
             if horizontal {
                 // Left to right gradient
                 let [r1, g1, b1, a1] = top_color.to_gl_color();
                 let [r2, g2, b2, a2] = bottom_color.to_gl_color();
-                
+
                 gl::Color4f(r1, g1, b1, a1);
                 gl::Vertex2i(rect.x(), rect.y());
                 gl::Vertex2i(rect.x(), rect.bottom());
-                
+
                 gl::Color4f(r2, g2, b2, a2);
                 gl::Vertex2i(rect.right(), rect.bottom());
                 gl::Vertex2i(rect.right(), rect.y());
@@ -401,45 +419,45 @@ impl GlContext {
                 // Top to bottom gradient
                 let [r1, g1, b1, a1] = top_color.to_gl_color();
                 let [r2, g2, b2, a2] = bottom_color.to_gl_color();
-                
+
                 gl::Color4f(r1, g1, b1, a1);
                 gl::Vertex2i(rect.x(), rect.y());
                 gl::Vertex2i(rect.right(), rect.y());
-                
+
                 gl::Color4f(r2, g2, b2, a2);
                 gl::Vertex2i(rect.right(), rect.bottom());
                 gl::Vertex2i(rect.x(), rect.bottom());
             }
-            
+
             gl::End();
         }
     }
-    
+
     pub fn draw_shadow(&self, rect: Rect, shadow_color: Color, blur_radius: i32, offset: Point) {
         // Simple shadow implementation using multiple transparent rectangles
         let steps = (blur_radius as f32).sqrt() as i32 + 1;
         let base_alpha = shadow_color.a;
-        
+
         for i in (0..steps).rev() {
             let alpha = (base_alpha as f32 * (1.0 - (i as f32 / steps as f32).powi(2))) as u8;
             let color = shadow_color.with_alpha(alpha);
             self.set_color(color);
-            
+
             let expansion = i * 2;
             let shadow_rect = Rect::new(
                 rect.x() + offset.x - expansion,
                 rect.y() + offset.y - expansion,
                 rect.width() + expansion * 2,
-                rect.height() + expansion * 2
+                rect.height() + expansion * 2,
             );
-            
+
             self.fill_rect(shadow_rect);
         }
     }
-    
+
     pub fn draw_ellipse(&self, center: Point, radius_x: i32, radius_y: i32, segments: i32) {
         use std::f32::consts::PI;
-        
+
         unsafe {
             gl::Begin(gl::LINE_LOOP);
             for i in 0..segments {
@@ -451,10 +469,10 @@ impl GlContext {
             gl::End();
         }
     }
-    
+
     pub fn fill_ellipse(&self, center: Point, radius_x: i32, radius_y: i32, segments: i32) {
         use std::f32::consts::PI;
-        
+
         unsafe {
             gl::Begin(gl::TRIANGLE_FAN);
             gl::Vertex2i(center.x, center.y);
@@ -467,12 +485,12 @@ impl GlContext {
             gl::End();
         }
     }
-    
+
     pub fn draw_polygon(&self, points: &[Point]) {
         if points.len() < 2 {
             return;
         }
-        
+
         unsafe {
             gl::Begin(gl::LINE_LOOP);
             for point in points {
@@ -481,12 +499,12 @@ impl GlContext {
             gl::End();
         }
     }
-    
+
     pub fn fill_polygon(&self, points: &[Point]) {
         if points.len() < 3 {
             return;
         }
-        
+
         unsafe {
             gl::Begin(gl::POLYGON);
             for point in points {
@@ -495,10 +513,58 @@ impl GlContext {
             gl::End();
         }
     }
-    
+
     pub fn set_line_width(&self, width: i32) {
         unsafe {
             gl::LineWidth(width as f32);
+        }
+    }
+
+    pub fn draw_image_rgba(&self, rect: Rect, width: i32, height: i32, data: &[u8]) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let expected = (width as usize) * (height as usize) * 4;
+        if data.len() < expected {
+            return;
+        }
+        unsafe {
+            // Ensure the texture is drawn with full intensity (no leftover tint from prior draws).
+            gl::Color4f(1.0, 1.0, 1.0, 1.0);
+            let mut texture_id = 0;
+            gl::GenTextures(1, &mut texture_id);
+            gl::BindTexture(gl::TEXTURE_2D, texture_id);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+            gl::TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA as i32,
+                width,
+                height,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                data.as_ptr() as *const _,
+            );
+
+            gl::Enable(gl::TEXTURE_2D);
+            gl::Begin(gl::QUADS);
+            gl::TexCoord2f(0.0, 0.0);
+            gl::Vertex2i(rect.x(), rect.y());
+            gl::TexCoord2f(1.0, 0.0);
+            gl::Vertex2i(rect.right(), rect.y());
+            gl::TexCoord2f(1.0, 1.0);
+            gl::Vertex2i(rect.right(), rect.bottom());
+            gl::TexCoord2f(0.0, 1.0);
+            gl::Vertex2i(rect.x(), rect.bottom());
+            gl::End();
+            gl::Disable(gl::TEXTURE_2D);
+
+            gl::DeleteTextures(1, &texture_id);
         }
     }
 }

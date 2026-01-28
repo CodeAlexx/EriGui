@@ -1,0 +1,99 @@
+Date: 2025-11-24 PST
+[17:20:01.856] weston 13.0.0
+               https://wayland.freedesktop.org
+               Bug reports to: https://gitlab.freedesktop.org/wayland/weston/issues/
+               Build: 13.0.0
+[17:20:01.856] Command line: weston --backend=headless-backend.so --socket=wayland-1 --idle-time=0 --log=/home/alex/EriGui/rust-gui/.runtime/weston/log.txt
+[17:20:01.856] OS: Linux, 6.8.0-87-generic, #88-Ubuntu SMP PREEMPT_DYNAMIC Sat Oct 11 09:28:41 UTC 2025, x86_64
+[17:20:01.856] Flight recorder: enabled
+[17:20:01.856] warning: XDG_RUNTIME_DIR "/home/alex/EriGui/rust-gui/.runtime/weston" is not configured
+correctly.  Unix access mode must be 0700 (current mode is 0775),
+and must be owned by the user UID 1000 (current owner is UID 1000).
+Refer to your distribution on how to get it, or
+http://www.freedesktop.org/wiki/Specifications/basedir-spec
+on how to implement it.
+[17:20:01.856] Starting with no config file.
+[17:20:01.856] Output repaint window is 7 ms maximum.
+[17:20:01.856] Loading module '/usr/lib/x86_64-linux-gnu/libweston-13/headless-backend.so'
+[17:20:01.860] Registered plugin API 'weston_windowed_output_api_v2' of size 16
+[17:20:01.860] Color manager: no-op
+[17:20:01.860] Output 'headless' attempts EOTF mode: SDR
+[17:20:01.860] Output 'headless' using color profile: stock sRGB color profile
+[17:20:01.860] Output 'headless' enabled with head(s) headless
+[17:20:01.860] Compositor capabilities:
+               arbitrary surface rotation: no
+               screen capture uses y-flip: no
+               cursor planes: no
+               arbitrary resolutions: no
+               view mask clipping: no
+               explicit sync: no
+               color operations: no
+               presentation clock: CLOCK_MONOTONIC_RAW, id 4
+               presentation clock resolution: 0.000000001 s
+[17:20:01.860] libwayland: bind() failed with error: Operation not permitted
+[17:20:01.860] fatal: failed to add socket: No such file or directory
+[17:20:01.860] no-op renderer SHM seed: 0
+Date: 2025-11-24 PST
+[17:20:29.566] weston 13.0.0
+               https://wayland.freedesktop.org
+               Bug reports to: https://gitlab.freedesktop.org/wayland/weston/issues/
+               Build: 13.0.0
+[17:20:29.566] Command line: weston --backend=headless-backend.so --socket=wayland-1 --idle-time=0 --log=/home/alex/EriGui/rust-gui/.runtime/weston/log.txt
+[17:20:29.566] OS: Linux, 6.8.0-87-generic, #88-Ubuntu SMP PREEMPT_DYNAMIC Sat Oct 11 09:28:41 UTC 2025, x86_64
+[17:20:29.566] Flight recorder: enabled
+[17:20:29.566] warning: XDG_RUNTIME_DIR "/home/alex/EriGui/rust-gui/.runtime/weston" is not configured
+correctly.  Unix access mode must be 0700 (current mode is 0775),
+and must be owned by the user UID 1000 (current owner is UID 1000).
+Refer to your distribution on how to get it, or
+http://www.freedesktop.org/wiki/Specifications/basedir-spec
+on how to implement it.
+[17:20:29.566] Starting with no config file.
+[17:20:29.566] Output repaint window is 7 ms maximum.
+[17:20:29.566] Loading module '/usr/lib/x86_64-linux-gnu/libweston-13/headless-backend.so'
+[17:20:29.569] Registered plugin API 'weston_windowed_output_api_v2' of size 16
+[17:20:29.569] Color manager: no-op
+[17:20:29.569] Output 'headless' attempts EOTF mode: SDR
+[17:20:29.569] Output 'headless' using color profile: stock sRGB color profile
+[17:20:29.569] Output 'headless' enabled with head(s) headless
+[17:20:29.569] Compositor capabilities:
+               arbitrary surface rotation: no
+               screen capture uses y-flip: no
+               cursor planes: no
+               arbitrary resolutions: no
+               view mask clipping: no
+               explicit sync: no
+               color operations: no
+               presentation clock: CLOCK_MONOTONIC_RAW, id 4
+               presentation clock resolution: 0.000000001 s
+[17:20:29.569] Loading module '/usr/lib/x86_64-linux-gnu/weston/desktop-shell.so'
+[17:20:29.569] launching '/usr/libexec/weston-keyboard'
+[17:20:29.570] launching '/usr/libexec/weston-desktop-shell'
+Date: 2025-11-24 PST
+[17:23:59.987] weston 13.0.0
+               https://wayland.freedesktop.org
+               Bug reports to: https://gitlab.freedesktop.org/wayland/weston/issues/
+               Build: 13.0.0
+[17:23:59.987] Command line: weston --backend=headless-backend.so --socket=wayland-1 --idle-time=0 --log=/home/alex/EriGui/rust-gui/.runtime/weston/log.txt
+[17:23:59.987] OS: Linux, 6.8.0-87-generic, #88-Ubuntu SMP PREEMPT_DYNAMIC Sat Oct 11 09:28:41 UTC 2025, x86_64
+[17:23:59.987] Flight recorder: enabled
+[17:23:59.987] Starting with no config file.
+[17:23:59.987] Output repaint window is 7 ms maximum.
+[17:23:59.987] Loading module '/usr/lib/x86_64-linux-gnu/libweston-13/headless-backend.so'
+[17:23:59.991] Registered plugin API 'weston_windowed_output_api_v2' of size 16
+[17:23:59.991] Color manager: no-op
+[17:23:59.991] Output 'headless' attempts EOTF mode: SDR
+[17:23:59.991] Output 'headless' using color profile: stock sRGB color profile
+[17:23:59.991] Output 'headless' enabled with head(s) headless
+[17:23:59.991] Compositor capabilities:
+               arbitrary surface rotation: no
+               screen capture uses y-flip: no
+               cursor planes: no
+               arbitrary resolutions: no
+               view mask clipping: no
+               explicit sync: no
+               color operations: no
+               presentation clock: CLOCK_MONOTONIC_RAW, id 4
+               presentation clock resolution: 0.000000001 s
+[17:23:59.991] libwayland: bind() failed with error: Operation not permitted
+[17:23:59.991] fatal: failed to add socket: No such file or directory
+[17:23:59.991] no-op renderer SHM seed: 0

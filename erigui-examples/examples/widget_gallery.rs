@@ -1,8 +1,11 @@
-use erigui_core::{Color, Rect, Size, Point, Margins, LayoutConfig, LayoutMode, Widget, DrawContext, Theme, ThemeManager};
-use erigui_rendering::{Renderer, convert_window_event};
+use erigui_core::{
+    Color, DrawContext, LayoutConfig, LayoutMode, Margins, Point, Rect, Size, Theme, ThemeManager,
+    Widget,
+};
+use erigui_rendering::{convert_window_event, Renderer};
 use erigui_widgets::{
-    Button, Container, Label, ListView, ScrollView, TextInput, TreeNode, TreeView,
-    WidgetManager, ListItem, TextAlign, WidgetId
+    Button, Container, Label, ListItem, ListView, ScrollView, TextAlign, TextInput, TreeNode,
+    TreeView, WidgetId, WidgetManager,
 };
 
 struct App {
@@ -15,7 +18,7 @@ impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
         let theme_manager = ThemeManager::new();
-        
+
         // Create root container
         let root_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -25,25 +28,24 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
+
         // Title
         let title_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "EriGui Widget Gallery")
-                .with_align(TextAlign::Center)
+            Label::new(WidgetId::default(), "EriGui Widget Gallery").with_align(TextAlign::Center),
         ));
-        
+
         // Buttons section
         let button_section = Self::create_button_section(&mut widget_manager);
-        
+
         // Input section
         let input_section = Self::create_input_section(&mut widget_manager);
-        
+
         // List section
         let list_section = Self::create_list_section(&mut widget_manager);
-        
+
         // Tree section
         let tree_section = Self::create_tree_section(&mut widget_manager);
-        
+
         // Add all sections to root
         let root = widget_manager.get_typed_mut::<Container>(root_id).unwrap();
         root.add_child(title_id);
@@ -51,15 +53,14 @@ impl App {
         root.add_child(input_section);
         root.add_flex_child(list_section, 1.0);
         root.add_flex_child(tree_section, 1.0);
-        
-        
+
         Self {
             widget_manager,
             theme_manager,
             root_container: root_id,
         }
     }
-    
+
     fn create_button_section(widget_manager: &mut WidgetManager) -> WidgetId {
         let container_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -68,31 +69,34 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
+
         // Create buttons
         let button1_id = widget_manager.add_widget(Box::new(
             Button::new(WidgetId::default(), "Click Me")
-                .with_on_click(|| println!("Button 1 clicked!"))
+                .with_on_click(|| println!("Button 1 clicked!")),
         ));
-        
-        let button2_id = widget_manager.add_widget(Box::new(
-            Button::new(WidgetId::default(), "Disabled")
-        ));
-        widget_manager.get_mut(button2_id).unwrap().set_enabled(false);
-        
-        let button3_id = widget_manager.add_widget(Box::new(
-            Button::new(WidgetId::default(), "Toggle Theme")
-        ));
-        
+
+        let button2_id =
+            widget_manager.add_widget(Box::new(Button::new(WidgetId::default(), "Disabled")));
+        widget_manager
+            .get_mut(button2_id)
+            .unwrap()
+            .set_enabled(false);
+
+        let button3_id =
+            widget_manager.add_widget(Box::new(Button::new(WidgetId::default(), "Toggle Theme")));
+
         // Add buttons to container
-        let container = widget_manager.get_typed_mut::<Container>(container_id).unwrap();
+        let container = widget_manager
+            .get_typed_mut::<Container>(container_id)
+            .unwrap();
         container.add_child(button1_id);
         container.add_child(button2_id);
         container.add_child(button3_id);
-        
+
         container_id
     }
-    
+
     fn create_input_section(widget_manager: &mut WidgetManager) -> WidgetId {
         let container_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -101,25 +105,26 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
-        let label_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "Text Input:")
-        ));
-        
+
+        let label_id =
+            widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Text Input:")));
+
         let input_id = widget_manager.add_widget(Box::new(
             TextInput::new(WidgetId::default())
                 .with_placeholder("Type something...")
-                .with_on_change(|text| println!("Text changed: {}", text))
+                .with_on_change(|text| println!("Text changed: {}", text)),
         ));
-        
+
         // Add to container
-        let container = widget_manager.get_typed_mut::<Container>(container_id).unwrap();
+        let container = widget_manager
+            .get_typed_mut::<Container>(container_id)
+            .unwrap();
         container.add_child(label_id);
         container.add_child(input_id);
-        
+
         container_id
     }
-    
+
     fn create_list_section(widget_manager: &mut WidgetManager) -> WidgetId {
         let container_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -128,44 +133,68 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
-        let label_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "List View:")
-        ));
-        
+
+        let label_id =
+            widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "List View:")));
+
         // Create list items
         let items = vec![
-            ListItem { id: "item1".to_string(), text: "Item 1".to_string(), icon: None, selected: true },
-            ListItem { id: "item2".to_string(), text: "Item 2".to_string(), icon: None, selected: false },
-            ListItem { id: "item3".to_string(), text: "Item 3".to_string(), icon: None, selected: false },
-            ListItem { id: "item4".to_string(), text: "Item 4".to_string(), icon: None, selected: false },
-            ListItem { id: "item5".to_string(), text: "Item 5".to_string(), icon: None, selected: false },
+            ListItem {
+                id: "item1".to_string(),
+                text: "Item 1".to_string(),
+                icon: None,
+                selected: true,
+            },
+            ListItem {
+                id: "item2".to_string(),
+                text: "Item 2".to_string(),
+                icon: None,
+                selected: false,
+            },
+            ListItem {
+                id: "item3".to_string(),
+                text: "Item 3".to_string(),
+                icon: None,
+                selected: false,
+            },
+            ListItem {
+                id: "item4".to_string(),
+                text: "Item 4".to_string(),
+                icon: None,
+                selected: false,
+            },
+            ListItem {
+                id: "item5".to_string(),
+                text: "Item 5".to_string(),
+                icon: None,
+                selected: false,
+            },
         ];
-        
+
         let list_id = widget_manager.add_widget(Box::new(
             ListView::new(WidgetId::default())
                 .with_items(items)
-                .with_on_selection_change(|index| println!("Selected item: {:?}", index))
+                .with_on_selection_change(|index| println!("Selected item: {:?}", index)),
         ));
-        
+
         // Wrap in scroll view
-        let scroll_id = widget_manager.add_widget(Box::new(
-            ScrollView::new(WidgetId::default())
-        ));
-        
+        let scroll_id = widget_manager.add_widget(Box::new(ScrollView::new(WidgetId::default())));
+
         // Add list to scroll view
         if let Some(scroll) = widget_manager.get_typed_mut::<ScrollView>(scroll_id) {
             scroll.set_child(Some(list_id));
         }
-        
+
         // Add to container
-        let container = widget_manager.get_typed_mut::<Container>(container_id).unwrap();
+        let container = widget_manager
+            .get_typed_mut::<Container>(container_id)
+            .unwrap();
         container.add_child(label_id);
         container.add_child(scroll_id);
-        
+
         container_id
     }
-    
+
     fn create_tree_section(widget_manager: &mut WidgetManager) -> WidgetId {
         let container_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -174,11 +203,10 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
-        let label_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "Tree View:")
-        ));
-        
+
+        let label_id =
+            widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Tree View:")));
+
         // Create tree structure
         let root_node = TreeNode {
             id: "root".to_string(),
@@ -218,58 +246,56 @@ impl App {
                     icon: None,
                     expanded: false,
                     selected: false,
-                    children: vec![
-                        TreeNode {
-                            id: "leaf2.1".to_string(),
-                            text: "Leaf 2.1".to_string(),
-                            icon: None,
-                            expanded: false,
-                            selected: false,
-                            children: vec![],
-                        },
-                    ],
+                    children: vec![TreeNode {
+                        id: "leaf2.1".to_string(),
+                        text: "Leaf 2.1".to_string(),
+                        icon: None,
+                        expanded: false,
+                        selected: false,
+                        children: vec![],
+                    }],
                 },
             ],
         };
-        
+
         let tree_id = widget_manager.add_widget(Box::new(
             TreeView::new(WidgetId::default())
                 .with_root_nodes(vec![root_node])
-                .with_on_selection_change(|path| println!("Selected path: {}", path))
+                .with_on_selection_change(|path| println!("Selected path: {}", path)),
         ));
-        
+
         // Wrap in scroll view
-        let scroll_id = widget_manager.add_widget(Box::new(
-            ScrollView::new(WidgetId::default())
-        ));
-        
+        let scroll_id = widget_manager.add_widget(Box::new(ScrollView::new(WidgetId::default())));
+
         // Add tree to scroll view
         if let Some(scroll) = widget_manager.get_typed_mut::<ScrollView>(scroll_id) {
             scroll.set_child(Some(tree_id));
         }
-        
+
         // Add to container
-        let container = widget_manager.get_typed_mut::<Container>(container_id).unwrap();
+        let container = widget_manager
+            .get_typed_mut::<Container>(container_id)
+            .unwrap();
         container.add_child(label_id);
         container.add_child(scroll_id);
-        
+
         container_id
     }
-    
+
     fn layout_widgets(&mut self, size: Size) {
         // Layout root container
         let _theme_name = self.theme_manager.current().name.clone();
-        
+
         if let Some(root) = self.widget_manager.get_mut(self.root_container) {
             let theme = Theme::light(); // Use a fresh theme instance
             root.layout(Rect::from_origin_size(Point::ZERO, size), &theme);
         }
-        
+
         // Recursively layout children
         let theme = Theme::light(); // Use a fresh theme instance
         self.layout_children(self.root_container, &theme);
     }
-    
+
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
         // Check if parent is a container and perform its layout logic
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
@@ -277,96 +303,120 @@ impl App {
             let layout_info = container.get_layout_info();
             let children = container.children().to_vec();
             let bounds = container.bounds();
-            
+
             // Perform container layout
             self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
         }
-        
+
         // Get children IDs to recurse
         let children: Vec<WidgetId> = if let Some(parent) = self.widget_manager.get(parent_id) {
             parent.children().to_vec()
         } else {
             return;
         };
-        
+
         // Recursively layout grandchildren
         for &child_id in &children {
             self.layout_children(child_id, theme);
         }
     }
-    
-    fn perform_container_layout(&mut self, _container_id: WidgetId, layout: &LayoutConfig, children: &[WidgetId], bounds: Rect, theme: &Theme) {
+
+    fn perform_container_layout(
+        &mut self,
+        _container_id: WidgetId,
+        layout: &LayoutConfig,
+        children: &[WidgetId],
+        bounds: Rect,
+        theme: &Theme,
+    ) {
         let content_rect = bounds.inset(layout.padding.left);
         let spacing = layout.spacing;
-        
+
         match layout.mode {
             LayoutMode::Vertical => {
                 let mut y = content_rect.y();
-                let child_height = if children.is_empty() { 0 } else {
-                    (content_rect.height() - spacing * (children.len() as i32 - 1)) / children.len() as i32
+                let child_height = if children.is_empty() {
+                    0
+                } else {
+                    (content_rect.height() - spacing * (children.len() as i32 - 1))
+                        / children.len() as i32
                 };
-                
+
                 for &child_id in children {
                     if let Some(child) = self.widget_manager.get_mut(child_id) {
-                        child.layout(Rect::new(content_rect.x(), y, content_rect.width(), child_height), theme);
+                        child.layout(
+                            Rect::new(content_rect.x(), y, content_rect.width(), child_height),
+                            theme,
+                        );
                         y += child_height + spacing;
                     }
                 }
             }
-            
+
             LayoutMode::Horizontal => {
                 let mut x = content_rect.x();
-                let child_width = if children.is_empty() { 0 } else {
-                    (content_rect.width() - spacing * (children.len() as i32 - 1)) / children.len() as i32
+                let child_width = if children.is_empty() {
+                    0
+                } else {
+                    (content_rect.width() - spacing * (children.len() as i32 - 1))
+                        / children.len() as i32
                 };
-                
+
                 for &child_id in children {
                     if let Some(child) = self.widget_manager.get_mut(child_id) {
-                        child.layout(Rect::new(x, content_rect.y(), child_width, content_rect.height()), theme);
+                        child.layout(
+                            Rect::new(x, content_rect.y(), child_width, content_rect.height()),
+                            theme,
+                        );
                         x += child_width + spacing;
                     }
                 }
             }
-            
+
             _ => {}
         }
     }
-    
+
     fn draw_widget(&self, widget_id: WidgetId, renderer: &mut Renderer) {
         let theme = Theme::light(); // Use a fresh theme instance
-        
+
         if let Some(widget) = self.widget_manager.get(widget_id) {
             widget.draw(renderer, &theme);
-            
+
             // Draw children
             for &child_id in widget.children() {
                 self.draw_widget(child_id, renderer);
             }
         }
     }
-    
+
     fn handle_event(&mut self, event: &erigui_core::Event) {
         // Simple event routing - in a real implementation, this would be more sophisticated
         let root_container = self.root_container;
         let theme = Theme::light(); // Use a fresh theme instance
         self.route_event(root_container, event, &theme);
     }
-    
-    fn route_event(&mut self, widget_id: WidgetId, event: &erigui_core::Event, theme: &Theme) -> erigui_core::EventResult {
+
+    fn route_event(
+        &mut self,
+        widget_id: WidgetId,
+        event: &erigui_core::Event,
+        theme: &Theme,
+    ) -> erigui_core::EventResult {
         // First try children (top to bottom)
         let children: Vec<WidgetId> = if let Some(widget) = self.widget_manager.get(widget_id) {
             widget.children().to_vec()
         } else {
             return erigui_core::EventResult::Ignored;
         };
-        
+
         // Process children in reverse order (top-most first)
         for &child_id in children.iter().rev() {
             if self.route_event(child_id, event, theme).is_consumed() {
                 return erigui_core::EventResult::Consumed;
             }
         }
-        
+
         // Then try the widget itself
         if let Some(widget) = self.widget_manager.get_mut(widget_id) {
             widget.handle_event(event, theme)
@@ -378,31 +428,34 @@ impl App {
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-    
+
     let event_loop = winit::event_loop::EventLoop::new();
     let mut renderer = Renderer::new(&event_loop, 800, 600, "EriGui - Widget Gallery")?;
     let mut app = App::new();
-    
+
     // Initial layout
     app.layout_widgets(Size::new(800, 600));
-    
+
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::ControlFlow;
-    
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
-        
+
         match event {
             Event::WindowEvent { event, .. } => {
                 match &event {
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
-                        app.layout_widgets(Size::new(physical_size.width as i32, physical_size.height as i32));
+                        app.layout_widgets(Size::new(
+                            physical_size.width as i32,
+                            physical_size.height as i32,
+                        ));
                     }
                     _ => {}
                 }
-                
+
                 // Convert and handle widget events
                 if let Some(gui_event) = convert_window_event(event, renderer.viewport_size()) {
                     app.handle_event(&gui_event);
@@ -410,16 +463,16 @@ fn main() -> anyhow::Result<()> {
             }
             Event::MainEventsCleared => {
                 renderer.begin_frame(Color::rgb(30, 30, 30));
-                
+
                 // Draw debug rect to verify rendering works
                 renderer.set_color(Color::RED);
                 renderer.fill_rect(Rect::new(10, 10, 100, 50));
                 renderer.set_color(Color::WHITE);
                 renderer.draw_text("Debug Test", Point::new(20, 30), 16);
-                
+
                 // Draw all widgets
                 app.draw_widget(app.root_container, &mut renderer);
-                
+
                 renderer.end_frame();
             }
             _ => {}

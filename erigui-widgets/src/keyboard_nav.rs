@@ -1,4 +1,4 @@
-use erigui_core::{Key, WidgetId, Rect, Point};
+use erigui_core::{Key, Point, Rect, WidgetId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,21 +38,24 @@ impl KeyboardNavigationManager {
             focus_trap: None,
         }
     }
-    
+
     pub fn register_widget(&mut self, widget: FocusableWidget) {
         let id = widget.id;
         let group_id = widget.group_id.clone();
-        
+
         self.focusable_widgets.insert(id, widget);
-        
+
         // Add to group if specified
         if let Some(group) = group_id {
-            self.focus_groups.entry(group).or_insert_with(Vec::new).push(id);
+            self.focus_groups
+                .entry(group)
+                .or_insert_with(Vec::new)
+                .push(id);
         }
-        
+
         self.rebuild_focus_order();
     }
-    
+
     pub fn unregister_widget(&mut self, id: WidgetId) {
         if let Some(widget) = self.focusable_widgets.remove(&id) {
             // Remove from group
@@ -61,46 +64,46 @@ impl KeyboardNavigationManager {
                     group.retain(|&w| w != id);
                 }
             }
-            
+
             // Clear focus if this widget had it
             if self.current_focus == Some(id) {
                 self.current_focus = None;
             }
-            
+
             self.rebuild_focus_order();
         }
     }
-    
+
     pub fn update_widget_bounds(&mut self, id: WidgetId, bounds: Rect) {
         if let Some(widget) = self.focusable_widgets.get_mut(&id) {
             widget.bounds = bounds;
         }
     }
-    
+
     pub fn set_focus(&mut self, id: Option<WidgetId>) {
         self.current_focus = id;
     }
-    
+
     pub fn get_focused_widget(&self) -> Option<WidgetId> {
         self.current_focus
     }
-    
+
     pub fn set_focus_trap(&mut self, group_id: Option<String>) {
         self.focus_trap = group_id;
     }
-    
+
     pub fn handle_navigation(&mut self, direction: NavigationDirection) -> Option<WidgetId> {
         match direction {
             NavigationDirection::Forward | NavigationDirection::Backward => {
                 self.navigate_tab(direction == NavigationDirection::Forward)
             }
-            NavigationDirection::Up | NavigationDirection::Down | 
-            NavigationDirection::Left | NavigationDirection::Right => {
-                self.navigate_directional(direction)
-            }
+            NavigationDirection::Up
+            | NavigationDirection::Down
+            | NavigationDirection::Left
+            | NavigationDirection::Right => self.navigate_directional(direction),
         }
     }
-    
+
     pub fn handle_key(&mut self, key: Key) -> Option<WidgetId> {
         match key {
             Key::Tab => self.navigate_tab(true),
@@ -111,12 +114,14 @@ impl KeyboardNavigationManager {
             _ => None,
         }
     }
-    
+
     fn rebuild_focus_order(&mut self) {
-        let mut widgets: Vec<_> = self.focusable_widgets.values()
+        let mut widgets: Vec<_> = self
+            .focusable_widgets
+            .values()
             .filter(|w| w.focusable)
             .collect();
-        
+
         // Sort by tab index, then by position (top-to-bottom, left-to-right)
         widgets.sort_by(|a, b| {
             match (a.tab_index, b.tab_index) {
@@ -131,34 +136,37 @@ impl KeyboardNavigationManager {
                 }
             }
         });
-        
+
         self.focus_order = widgets.into_iter().map(|w| w.id).collect();
     }
-    
+
     fn navigate_tab(&mut self, forward: bool) -> Option<WidgetId> {
         if self.focus_order.is_empty() {
             return None;
         }
-        
-        let current_index = self.current_focus
+
+        let current_index = self
+            .current_focus
             .and_then(|id| self.focus_order.iter().position(|&w| w == id));
-        
+
         let mut candidates = self.focus_order.clone();
-        
+
         // Apply focus trap if active
         if let Some(trap_group) = &self.focus_trap {
             if let Some(group_widgets) = self.focus_groups.get(trap_group) {
                 candidates.retain(|id| group_widgets.contains(id));
             }
         }
-        
+
         if candidates.is_empty() {
             return None;
         }
-        
+
         let next_index = match current_index {
             Some(idx) => {
-                let current_pos = candidates.iter().position(|&id| id == self.focus_order[idx])?;
+                let current_pos = candidates
+                    .iter()
+                    .position(|&id| id == self.focus_order[idx])?;
                 if forward {
                     (current_pos + 1) % candidates.len()
                 } else {
@@ -171,32 +179,38 @@ impl KeyboardNavigationManager {
             }
             None => 0,
         };
-        
+
         let next_widget = candidates[next_index];
         self.current_focus = Some(next_widget);
         Some(next_widget)
     }
-    
+
     fn navigate_directional(&mut self, direction: NavigationDirection) -> Option<WidgetId> {
         let current = self.current_focus?;
         let current_widget = self.focusable_widgets.get(&current)?;
         let current_center = current_widget.bounds.center();
-        
-        let mut candidates: Vec<_> = self.focusable_widgets.values()
-            .filter(|w| w.id != current && w.focusable && self.is_in_direction(&current_center, &w.bounds, direction))
+
+        let mut candidates: Vec<_> = self
+            .focusable_widgets
+            .values()
+            .filter(|w| {
+                w.id != current
+                    && w.focusable
+                    && self.is_in_direction(&current_center, &w.bounds, direction)
+            })
             .collect();
-        
+
         // Apply focus trap if active
         if let Some(trap_group) = &self.focus_trap {
             if let Some(group_widgets) = self.focus_groups.get(trap_group) {
                 candidates.retain(|w| group_widgets.contains(&w.id));
             }
         }
-        
+
         if candidates.is_empty() {
             return None;
         }
-        
+
         // Find the closest widget in the given direction
         candidates.sort_by_key(|w| {
             let center = w.bounds.center();
@@ -204,15 +218,15 @@ impl KeyboardNavigationManager {
             let dy = center.y - current_center.y;
             dx * dx + dy * dy // Distance squared
         });
-        
+
         let next_widget = candidates[0].id;
         self.current_focus = Some(next_widget);
         Some(next_widget)
     }
-    
+
     fn is_in_direction(&self, from: &Point, to: &Rect, direction: NavigationDirection) -> bool {
         let to_center = to.center();
-        
+
         match direction {
             NavigationDirection::Up => to_center.y < from.y,
             NavigationDirection::Down => to_center.y > from.y,
@@ -229,9 +243,10 @@ use std::sync::{Mutex, OnceLock};
 static KEYBOARD_NAV_MANAGER: OnceLock<Mutex<KeyboardNavigationManager>> = OnceLock::new();
 
 pub fn keyboard_nav_manager() -> std::sync::MutexGuard<'static, KeyboardNavigationManager> {
-    KEYBOARD_NAV_MANAGER.get_or_init(|| {
-        Mutex::new(KeyboardNavigationManager::new())
-    }).lock().unwrap()
+    KEYBOARD_NAV_MANAGER
+        .get_or_init(|| Mutex::new(KeyboardNavigationManager::new()))
+        .lock()
+        .unwrap()
 }
 
 // Trait for widgets that support keyboard navigation

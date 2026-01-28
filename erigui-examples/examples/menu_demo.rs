@@ -1,8 +1,6 @@
-use erigui_core::{Color, Rect, Size, Point, Margins, LayoutConfig, LayoutMode, Widget, Theme};
-use erigui_rendering::{Renderer, convert_window_event};
-use erigui_widgets::{
-    MenuBar, MenuItem, Container, Label, TextAlign, WidgetManager, WidgetId
-};
+use erigui_core::{Color, LayoutConfig, LayoutMode, Margins, Point, Rect, Size, Theme, Widget};
+use erigui_rendering::{convert_window_event, Renderer};
+use erigui_widgets::{Container, Label, MenuBar, MenuItem, TextAlign, WidgetId, WidgetManager};
 
 struct App {
     widget_manager: WidgetManager,
@@ -12,7 +10,7 @@ struct App {
 impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
-        
+
         // Create root container
         let root_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -22,12 +20,10 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
+
         // Create menu bar
-        let menu_bar_id = widget_manager.add_widget(Box::new(
-            MenuBar::new(WidgetId::default())
-        ));
-        
+        let menu_bar_id = widget_manager.add_widget(Box::new(MenuBar::new(WidgetId::default())));
+
         // Configure menu bar
         if let Some(menu_bar) = widget_manager.get_typed_mut::<MenuBar>(menu_bar_id) {
             // File menu
@@ -50,7 +46,7 @@ impl App {
                     .with_on_click(|| println!("Exit")),
             ];
             menu_bar.add_menu("File", file_items);
-            
+
             // Edit menu
             let edit_items = vec![
                 MenuItem::new("Undo")
@@ -75,7 +71,7 @@ impl App {
                     .with_on_click(|| println!("Select all")),
             ];
             menu_bar.add_menu("Edit", edit_items);
-            
+
             // View menu
             let view_items = vec![
                 MenuItem::new("Zoom In")
@@ -93,17 +89,15 @@ impl App {
                     .with_on_click(|| println!("Full screen")),
             ];
             menu_bar.add_menu("View", view_items);
-            
+
             // Help menu
             let help_items = vec![
-                MenuItem::new("Documentation")
-                    .with_on_click(|| println!("Open documentation")),
-                MenuItem::new("About")
-                    .with_on_click(|| println!("About")),
+                MenuItem::new("Documentation").with_on_click(|| println!("Open documentation")),
+                MenuItem::new("About").with_on_click(|| println!("About")),
             ];
             menu_bar.add_menu("Help", help_items);
         }
-        
+
         // Create content area
         let content_container_id = widget_manager.add_widget(Box::new(
             Container::new(WidgetId::default()).with_layout(LayoutConfig {
@@ -113,81 +107,95 @@ impl App {
                 ..Default::default()
             }),
         ));
-        
+
         // Add content labels
         let title_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "Menu Demo")
-                .with_align(TextAlign::Center)
+            Label::new(WidgetId::default(), "Menu Demo").with_align(TextAlign::Center),
         ));
-        
+
         let instruction_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "Click on the menu items above to see the menu system in action")
-                .with_align(TextAlign::Center)
+            Label::new(
+                WidgetId::default(),
+                "Click on the menu items above to see the menu system in action",
+            )
+            .with_align(TextAlign::Center),
         ));
-        
+
         let coord_info_id = widget_manager.add_widget(Box::new(
-            Label::new(WidgetId::default(), "The menu uses integer coordinates for pixel-perfect rendering")
-                .with_align(TextAlign::Center)
-                .with_color(Color::rgb(100, 150, 200))
+            Label::new(
+                WidgetId::default(),
+                "The menu uses integer coordinates for pixel-perfect rendering",
+            )
+            .with_align(TextAlign::Center)
+            .with_color(Color::rgb(100, 150, 200)),
         ));
-        
+
         // Build hierarchy
         let root = widget_manager.get_typed_mut::<Container>(root_id).unwrap();
         root.add_child(menu_bar_id);
         root.add_flex_child(content_container_id, 1.0);
-        
-        let content = widget_manager.get_typed_mut::<Container>(content_container_id).unwrap();
+
+        let content = widget_manager
+            .get_typed_mut::<Container>(content_container_id)
+            .unwrap();
         content.add_child(title_id);
         content.add_child(instruction_id);
         content.add_child(coord_info_id);
-        
+
         Self {
             widget_manager,
             root_container: root_id,
         }
     }
-    
+
     fn layout_widgets(&mut self, size: Size) {
         if let Some(root) = self.widget_manager.get_mut(self.root_container) {
             let theme = Theme::light();
             root.layout(Rect::from_origin_size(Point::ZERO, size), &theme);
         }
-        
+
         let theme = Theme::light();
         self.layout_children(self.root_container, &theme);
     }
-    
+
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
             let layout_info = container.get_layout_info();
             let children = container.children().to_vec();
             let bounds = container.bounds();
-            
+
             self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
         }
-        
+
         let children: Vec<WidgetId> = if let Some(parent) = self.widget_manager.get(parent_id) {
             parent.children().to_vec()
         } else {
             return;
         };
-        
+
         for &child_id in &children {
             self.layout_children(child_id, theme);
         }
     }
-    
-    fn perform_container_layout(&mut self, _container_id: WidgetId, layout: &LayoutConfig, children: &[WidgetId], bounds: Rect, theme: &Theme) {
+
+    fn perform_container_layout(
+        &mut self,
+        _container_id: WidgetId,
+        layout: &LayoutConfig,
+        children: &[WidgetId],
+        bounds: Rect,
+        theme: &Theme,
+    ) {
         let content_rect = bounds.inset(layout.padding.left);
         let spacing = layout.spacing;
-        
+
         match layout.mode {
             LayoutMode::Vertical => {
                 let mut y = content_rect.y();
                 let mut remaining_height = content_rect.height();
                 let mut flex_items = Vec::new();
                 let mut fixed_height = 0;
-                
+
                 // First pass: measure fixed items (including menu bar)
                 for &child_id in children {
                     if let Some(child) = self.widget_manager.get(child_id) {
@@ -195,7 +203,9 @@ impl App {
                         if self.widget_manager.get_typed::<MenuBar>(child_id).is_some() {
                             let menu_height = 25; // Fixed height for menu bar
                             fixed_height += menu_height;
-                        } else if let Some(container) = self.widget_manager.get_typed::<Container>(child_id) {
+                        } else if let Some(container) =
+                            self.widget_manager.get_typed::<Container>(child_id)
+                        {
                             let flex_children = container.get_layout_info();
                             if flex_children.mode != LayoutMode::None {
                                 flex_items.push(child_id);
@@ -207,12 +217,14 @@ impl App {
                         }
                     }
                 }
-                
+
                 remaining_height = (remaining_height - fixed_height).max(0);
-                let flex_height = if flex_items.is_empty() { 0 } else {
+                let flex_height = if flex_items.is_empty() {
+                    0
+                } else {
                     remaining_height / flex_items.len() as i32
                 };
-                
+
                 // Second pass: layout all children
                 for &child_id in children {
                     // Determine height before getting mutable reference
@@ -224,65 +236,76 @@ impl App {
                     } else {
                         50 // Default height
                     };
-                    
+
                     if let Some(child) = self.widget_manager.get_mut(child_id) {
-                        child.layout(Rect::new(content_rect.x(), y, content_rect.width(), height), theme);
+                        child.layout(
+                            Rect::new(content_rect.x(), y, content_rect.width(), height),
+                            theme,
+                        );
                     }
                     y += height + spacing;
                 }
             }
-            
+
             LayoutMode::Horizontal => {
                 let mut x = content_rect.x();
                 let child_count = children.len() as i32;
                 let total_spacing = spacing * (child_count - 1).max(0);
                 let available_width = content_rect.width() - total_spacing;
-                
+
                 for &child_id in children {
                     if let Some(child) = self.widget_manager.get_mut(child_id) {
                         let width = available_width / child_count;
-                        child.layout(Rect::new(x, content_rect.y(), width, content_rect.height()), theme);
+                        child.layout(
+                            Rect::new(x, content_rect.y(), width, content_rect.height()),
+                            theme,
+                        );
                         x += width + spacing;
                     }
                 }
             }
-            
+
             _ => {}
         }
     }
-    
+
     fn draw_widget(&self, widget_id: WidgetId, renderer: &mut Renderer) {
         let theme = Theme::light();
-        
+
         if let Some(widget) = self.widget_manager.get(widget_id) {
             widget.draw(renderer, &theme);
-            
+
             for &child_id in widget.children() {
                 self.draw_widget(child_id, renderer);
             }
         }
     }
-    
+
     fn handle_event(&mut self, event: &erigui_core::Event) {
         let root_container = self.root_container;
         let theme = Theme::light();
         self.route_event(root_container, event, &theme);
     }
-    
-    fn route_event(&mut self, widget_id: WidgetId, event: &erigui_core::Event, theme: &Theme) -> erigui_core::EventResult {
+
+    fn route_event(
+        &mut self,
+        widget_id: WidgetId,
+        event: &erigui_core::Event,
+        theme: &Theme,
+    ) -> erigui_core::EventResult {
         let children: Vec<WidgetId> = if let Some(widget) = self.widget_manager.get(widget_id) {
             widget.children().to_vec()
         } else {
             return erigui_core::EventResult::Ignored;
         };
-        
+
         // Route to children in reverse order (top to bottom)
         for &child_id in children.iter().rev() {
             if self.route_event(child_id, event, theme).is_consumed() {
                 return erigui_core::EventResult::Consumed;
             }
         }
-        
+
         if let Some(widget) = self.widget_manager.get_mut(widget_id) {
             widget.handle_event(event, theme)
         } else {
@@ -293,30 +316,33 @@ impl App {
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-    
+
     let event_loop = winit::event_loop::EventLoop::new();
     let mut renderer = Renderer::new(&event_loop, 800, 600, "EriGui - Menu Demo")?;
     let mut app = App::new();
-    
+
     app.layout_widgets(Size::new(800, 600));
-    
+
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::ControlFlow;
-    
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
-        
+
         match event {
             Event::WindowEvent { event, .. } => {
                 match &event {
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
-                        app.layout_widgets(Size::new(physical_size.width as i32, physical_size.height as i32));
+                        app.layout_widgets(Size::new(
+                            physical_size.width as i32,
+                            physical_size.height as i32,
+                        ));
                     }
                     _ => {}
                 }
-                
+
                 if let Some(gui_event) = convert_window_event(event, renderer.viewport_size()) {
                     app.handle_event(&gui_event);
                 }

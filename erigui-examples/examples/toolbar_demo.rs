@@ -1,6 +1,6 @@
 use erigui_core::*;
-use erigui_widgets::*;
 use erigui_rendering::Renderer;
+use erigui_widgets::*;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -9,14 +9,14 @@ use winit::{
 struct ToolbarDemo {
     // Main toolbar
     main_toolbar: Toolbar,
-    
+
     // Vertical toolbar
     vertical_toolbar: Toolbar,
-    
+
     // Labels
     status_label: Label,
     content_label: Label,
-    
+
     // State
     view_mode: String,
     tool_mode: String,
@@ -28,18 +28,24 @@ impl ToolbarDemo {
         let main_toolbar = Toolbar::new(WidgetId::default())
             .with_orientation(Orientation::Horizontal)
             .add_button("New", Some(ButtonIcon::File), || println!("New clicked"))
-            .add_button("Open", Some(ButtonIcon::Folder), || println!("Open clicked"))
+            .add_button("Open", Some(ButtonIcon::Folder), || {
+                println!("Open clicked")
+            })
             .add_button("Save", None, || println!("Save clicked"))
             .add_separator()
             .add_button("Cut", None, || println!("Cut clicked"))
             .add_button("Copy", None, || println!("Copy clicked"))
             .add_button("Paste", None, || println!("Paste clicked"))
             .add_separator()
-            .add_dropdown_button("View", None, vec![
-                MenuItem::new("Grid View").with_on_click(|| println!("Grid View")),
-                MenuItem::new("List View").with_on_click(|| println!("List View")),
-                MenuItem::new("Details View").with_on_click(|| println!("Details View")),
-            ])
+            .add_dropdown_button(
+                "View",
+                None,
+                vec![
+                    MenuItem::new("Grid View").with_on_click(|| println!("Grid View")),
+                    MenuItem::new("List View").with_on_click(|| println!("List View")),
+                    MenuItem::new("Details View").with_on_click(|| println!("Details View")),
+                ],
+            )
             .add_separator()
             .add_toggle_button("Bold", None, Some(1), |pressed| {
                 println!("Bold: {}", pressed);
@@ -52,11 +58,11 @@ impl ToolbarDemo {
             })
             .add_separator()
             .add_button("Help", None, || println!("Help clicked"));
-        
+
         // Create vertical toolbar
         let vertical_toolbar = Toolbar::new(WidgetId::default())
             .with_orientation(Orientation::Vertical)
-            .with_show_text(false)  // Icons only
+            .with_show_text(false) // Icons only
             .add_toggle_button("Select", Some(ButtonIcon::Search), Some(2), |pressed| {
                 println!("Select tool: {}", pressed);
             })
@@ -70,12 +76,15 @@ impl ToolbarDemo {
             .add_button("Zoom In", None, || println!("Zoom In"))
             .add_button("Zoom Out", None, || println!("Zoom Out"))
             .add_button("Reset", Some(ButtonIcon::Home), || println!("Reset View"));
-        
+
         Self {
             main_toolbar,
             vertical_toolbar,
             status_label: Label::new(WidgetId::default(), "Ready"),
-            content_label: Label::new(WidgetId::default(), "Toolbar Demo - Showing horizontal and vertical toolbars with various button types"),
+            content_label: Label::new(
+                WidgetId::default(),
+                "Toolbar Demo - Showing horizontal and vertical toolbars with various button types",
+            ),
             view_mode: "Grid".to_string(),
             tool_mode: "Select".to_string(),
         }
@@ -84,17 +93,17 @@ impl ToolbarDemo {
 
 fn main() {
     let event_loop = EventLoop::new();
-    
-    let mut renderer = Renderer::new(&event_loop, 800, 600, "Toolbar Demo")
-        .expect("Failed to create renderer");
-    
+
+    let mut renderer =
+        Renderer::new(&event_loop, 800, 600, "Toolbar Demo").expect("Failed to create renderer");
+
     let theme = Theme::dark();
-    
+
     let mut demo = ToolbarDemo::new();
-    
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        
+
         match event {
             WinitEvent::WindowEvent { event, .. } => {
                 match event {
@@ -106,20 +115,22 @@ fn main() {
                     }
                     _ => {}
                 }
-                
+
                 // Convert window event to EriGui event
-                if let Some(gui_event) = erigui_rendering::window::convert_window_event(event, renderer.viewport_size()) {
+                if let Some(gui_event) =
+                    erigui_rendering::window::convert_window_event(event, renderer.viewport_size())
+                {
                     let _ = demo.main_toolbar.handle_event(&gui_event, &theme);
                     let _ = demo.vertical_toolbar.handle_event(&gui_event, &theme);
-                    
+
                     renderer.window().request_redraw();
                 }
             }
-            
+
             WinitEvent::RedrawRequested(_) => {
                 // Layout
                 let window_size = renderer.viewport_size();
-                
+
                 // Main toolbar at top
                 let main_toolbar_constraints = LayoutConstraints {
                     min_width: Some(window_size.width),
@@ -127,9 +138,13 @@ fn main() {
                     min_height: None,
                     max_height: None,
                 };
-                let main_toolbar_size = demo.main_toolbar.measure(&main_toolbar_constraints, &theme);
-                demo.main_toolbar.layout(Rect::new(0, 0, window_size.width, main_toolbar_size.height), &theme);
-                
+                let main_toolbar_size =
+                    demo.main_toolbar.measure(&main_toolbar_constraints, &theme);
+                demo.main_toolbar.layout(
+                    Rect::new(0, 0, window_size.width, main_toolbar_size.height),
+                    &theme,
+                );
+
                 // Vertical toolbar on left
                 let vertical_toolbar_constraints = LayoutConstraints {
                     min_width: None,
@@ -137,49 +152,68 @@ fn main() {
                     min_height: Some(window_size.height - main_toolbar_size.height - 30),
                     max_height: Some(window_size.height - main_toolbar_size.height - 30),
                 };
-                let vertical_toolbar_size = demo.vertical_toolbar.measure(&vertical_toolbar_constraints, &theme);
-                demo.vertical_toolbar.layout(Rect::new(
-                    0,
-                    main_toolbar_size.height,
-                    vertical_toolbar_size.width,
-                    window_size.height - main_toolbar_size.height - 30
-                ), &theme);
-                
+                let vertical_toolbar_size = demo
+                    .vertical_toolbar
+                    .measure(&vertical_toolbar_constraints, &theme);
+                demo.vertical_toolbar.layout(
+                    Rect::new(
+                        0,
+                        main_toolbar_size.height,
+                        vertical_toolbar_size.width,
+                        window_size.height - main_toolbar_size.height - 30,
+                    ),
+                    &theme,
+                );
+
                 // Content area
                 let content_x = vertical_toolbar_size.width + 20;
                 let content_y = main_toolbar_size.height + 20;
-                let content_label_size = demo.content_label.measure(&LayoutConstraints::default(), &theme);
-                demo.content_label.layout(Rect::new(
-                    content_x,
-                    content_y,
-                    content_label_size.width,
-                    content_label_size.height
-                ), &theme);
-                
+                let content_label_size = demo
+                    .content_label
+                    .measure(&LayoutConstraints::default(), &theme);
+                demo.content_label.layout(
+                    Rect::new(
+                        content_x,
+                        content_y,
+                        content_label_size.width,
+                        content_label_size.height,
+                    ),
+                    &theme,
+                );
+
                 // Status bar at bottom
-                let status_label_size = demo.status_label.measure(&LayoutConstraints::default(), &theme);
-                demo.status_label.layout(Rect::new(
-                    10,
-                    window_size.height - status_label_size.height - 10,
-                    status_label_size.width,
-                    status_label_size.height
-                ), &theme);
-                
+                let status_label_size = demo
+                    .status_label
+                    .measure(&LayoutConstraints::default(), &theme);
+                demo.status_label.layout(
+                    Rect::new(
+                        10,
+                        window_size.height - status_label_size.height - 10,
+                        status_label_size.width,
+                        status_label_size.height,
+                    ),
+                    &theme,
+                );
+
                 // Draw
                 renderer.begin_frame(theme.colors.background);
-                
-                demo.main_toolbar.draw(&mut renderer as &mut dyn DrawContext, &theme);
-                demo.vertical_toolbar.draw(&mut renderer as &mut dyn DrawContext, &theme);
-                demo.content_label.draw(&mut renderer as &mut dyn DrawContext, &theme);
-                demo.status_label.draw(&mut renderer as &mut dyn DrawContext, &theme);
-                
+
+                demo.main_toolbar
+                    .draw(&mut renderer as &mut dyn DrawContext, &theme);
+                demo.vertical_toolbar
+                    .draw(&mut renderer as &mut dyn DrawContext, &theme);
+                demo.content_label
+                    .draw(&mut renderer as &mut dyn DrawContext, &theme);
+                demo.status_label
+                    .draw(&mut renderer as &mut dyn DrawContext, &theme);
+
                 // Draw status bar background
                 renderer.set_color(theme.colors.surface_variant);
                 renderer.fill_rect(Rect::new(0, window_size.height - 30, window_size.width, 30));
-                
+
                 renderer.end_frame();
             }
-            
+
             _ => {}
         }
     });

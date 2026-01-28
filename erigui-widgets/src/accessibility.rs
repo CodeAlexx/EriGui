@@ -1,4 +1,4 @@
-use erigui_core::{WidgetId, Rect};
+use erigui_core::{Rect, WidgetId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,10 +108,10 @@ impl AccessibilityManager {
             announcements: Vec::new(),
         }
     }
-    
+
     pub fn register_node(&mut self, node: AccessibilityNode) {
         let id = node.id;
-        
+
         // Update parent's children list
         if let Some(parent_id) = node.parent {
             if let Some(parent) = self.nodes.get_mut(&parent_id) {
@@ -120,10 +120,10 @@ impl AccessibilityManager {
                 }
             }
         }
-        
+
         self.nodes.insert(id, node);
     }
-    
+
     pub fn unregister_node(&mut self, id: WidgetId) {
         if let Some(node) = self.nodes.remove(&id) {
             // Remove from parent's children
@@ -132,21 +132,24 @@ impl AccessibilityManager {
                     parent.children.retain(|&child| child != id);
                 }
             }
-            
+
             // Clear focus if this node had it
             if self.focus_id == Some(id) {
                 self.focus_id = None;
             }
         }
     }
-    
+
     pub fn update_node_state(&mut self, id: WidgetId, state: AccessibilityState) {
-        let node_info = self.nodes.get(&id).map(|n| (n.label.clone(), n.role.clone(), n.state.clone()));
-        
+        let node_info = self
+            .nodes
+            .get(&id)
+            .map(|n| (n.label.clone(), n.role.clone(), n.state.clone()));
+
         if let Some(node) = self.nodes.get_mut(&id) {
             node.state = state.clone();
         }
-        
+
         if let Some((label, role, old_state)) = node_info {
             // Create temporary node for announcement
             let temp_node = AccessibilityNode {
@@ -163,18 +166,25 @@ impl AccessibilityManager {
             self.announce_state_changes(&temp_node, &old_state);
         }
     }
-    
+
     pub fn update_node_label(&mut self, id: WidgetId, label: String) {
         if let Some(node) = self.nodes.get_mut(&id) {
             node.label = label;
         }
     }
-    
+
     pub fn set_focus(&mut self, id: Option<WidgetId>) {
         self.focus_id = id;
-        
+
         if let Some(id) = id {
-            let node_info = self.nodes.get(&id).map(|n| (n.label.clone(), n.role.clone(), n.state.clone(), n.description.clone()));
+            let node_info = self.nodes.get(&id).map(|n| {
+                (
+                    n.label.clone(),
+                    n.role.clone(),
+                    n.state.clone(),
+                    n.description.clone(),
+                )
+            });
             if let Some((label, role, state, description)) = node_info {
                 // Create a temporary node for announcement
                 let temp_node = AccessibilityNode {
@@ -192,22 +202,26 @@ impl AccessibilityManager {
             }
         }
     }
-    
+
     pub fn get_focused_node(&self) -> Option<&AccessibilityNode> {
         self.focus_id.and_then(|id| self.nodes.get(&id))
     }
-    
+
     pub fn announce(&mut self, message: String) {
         self.announcements.push(message);
     }
-    
+
     pub fn get_announcements(&mut self) -> Vec<String> {
         std::mem::take(&mut self.announcements)
     }
-    
+
     pub fn perform_action(&mut self, id: WidgetId, action: AccessibilityAction) -> bool {
         if let Some(node) = self.nodes.get(&id) {
-            if node.actions.iter().any(|a| std::mem::discriminant(a) == std::mem::discriminant(&action)) {
+            if node
+                .actions
+                .iter()
+                .any(|a| std::mem::discriminant(a) == std::mem::discriminant(&action))
+            {
                 // Action is supported
                 match &action {
                     AccessibilityAction::Click => {
@@ -232,10 +246,10 @@ impl AccessibilityManager {
         }
         false
     }
-    
+
     fn announce_focus(&mut self, node: &AccessibilityNode) {
         let mut announcement = node.label.clone();
-        
+
         // Add role information
         match node.role {
             AccessibilityRole::Button => announcement.push_str(" button"),
@@ -246,36 +260,36 @@ impl AccessibilityManager {
             AccessibilityRole::Slider => announcement.push_str(" slider"),
             _ => {}
         }
-        
+
         // Add state information
         if let Some(checked) = node.state.checked {
             announcement.push_str(if checked { " checked" } else { " not checked" });
         }
-        
+
         if let Some(selected) = node.state.selected {
             if selected {
                 announcement.push_str(" selected");
             }
         }
-        
+
         if let Some(expanded) = node.state.expanded {
             announcement.push_str(if expanded { " expanded" } else { " collapsed" });
         }
-        
+
         if let Some(disabled) = node.state.disabled {
             if disabled {
                 announcement.push_str(" disabled");
             }
         }
-        
+
         if let Some(ref description) = node.description {
             announcement.push_str(". ");
             announcement.push_str(description);
         }
-        
+
         self.announce(announcement);
     }
-    
+
     fn announce_state_changes(&mut self, node: &AccessibilityNode, old_state: &AccessibilityState) {
         if node.state.checked != old_state.checked {
             if let Some(checked) = node.state.checked {
@@ -286,7 +300,7 @@ impl AccessibilityManager {
                 ));
             }
         }
-        
+
         if node.state.expanded != old_state.expanded {
             if let Some(expanded) = node.state.expanded {
                 self.announce(format!(
@@ -296,7 +310,7 @@ impl AccessibilityManager {
                 ));
             }
         }
-        
+
         if node.state.value != old_state.value {
             if let Some(ref value) = node.state.value {
                 self.announce(format!("{} {}", node.label, value));
@@ -311,9 +325,10 @@ use std::sync::{Mutex, OnceLock};
 static ACCESSIBILITY_MANAGER: OnceLock<Mutex<AccessibilityManager>> = OnceLock::new();
 
 pub fn accessibility_manager() -> std::sync::MutexGuard<'static, AccessibilityManager> {
-    ACCESSIBILITY_MANAGER.get_or_init(|| {
-        Mutex::new(AccessibilityManager::new())
-    }).lock().unwrap()
+    ACCESSIBILITY_MANAGER
+        .get_or_init(|| Mutex::new(AccessibilityManager::new()))
+        .lock()
+        .unwrap()
 }
 
 // Trait for widgets that support accessibility

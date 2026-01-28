@@ -1,9 +1,9 @@
+use crate::{ButtonIcon, MenuItem};
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButtonEvent, MouseButton,
-    Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
+    Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
-use crate::{ButtonIcon, MenuItem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Orientation {
@@ -53,7 +53,7 @@ pub struct Toolbar {
     show_text: bool,
     overflow_items: Vec<usize>, // Indices of items that don't fit
     overflow_button_visible: bool,
-    
+
     // Interaction state
     hovered_item: Option<usize>,
     active_dropdown: Option<usize>,
@@ -74,17 +74,17 @@ impl Toolbar {
             active_dropdown: None,
         }
     }
-    
+
     pub fn with_orientation(mut self, orientation: Orientation) -> Self {
         self.orientation = orientation;
         self
     }
-    
+
     pub fn with_show_text(mut self, show_text: bool) -> Self {
         self.show_text = show_text;
         self
     }
-    
+
     pub fn add_button(
         mut self,
         text: impl Into<String>,
@@ -101,12 +101,12 @@ impl Toolbar {
         });
         self
     }
-    
+
     pub fn add_separator(mut self) -> Self {
         self.items.push(ToolbarItem::Separator);
         self
     }
-    
+
     pub fn add_dropdown_button(
         mut self,
         text: impl Into<String>,
@@ -123,7 +123,7 @@ impl Toolbar {
         });
         self
     }
-    
+
     pub fn add_toggle_button(
         mut self,
         text: impl Into<String>,
@@ -143,13 +143,14 @@ impl Toolbar {
         });
         self
     }
-    
+
     fn calculate_item_size(&self, item: &ToolbarItem, theme: &Theme) -> Size {
         match item {
-            ToolbarItem::Button { text, icon, .. } |
-            ToolbarItem::DropdownButton { text, icon, .. } |
-            ToolbarItem::ToggleButton { text, icon, .. } => {
-                let icon_size = if icon.is_some() { 16 } else { 0 };
+            ToolbarItem::Button { text, icon, .. }
+            | ToolbarItem::DropdownButton { text, icon, .. }
+            | ToolbarItem::ToggleButton { text, icon, .. } => {
+                // Reserve a larger icon box so PNG glyphs stay visible.
+                let icon_size = if icon.is_some() { 28 } else { 0 };
                 let text_width = if self.show_text && !text.is_empty() {
                     text.len() as i32 * theme.typography.font_size_base * 3 / 5
                 } else {
@@ -160,29 +161,27 @@ impl Toolbar {
                 } else {
                     0
                 };
-                
+
                 let width = icon_size + spacing + text_width + self.item_padding * 2;
                 let height = icon_size.max(theme.typography.font_size_base) + self.item_padding * 2;
-                
+
                 // Add space for dropdown arrow
                 let width = if matches!(item, ToolbarItem::DropdownButton { .. }) {
                     width + 12
                 } else {
                     width
                 };
-                
+
                 Size::new(width, height)
             }
             ToolbarItem::Separator => match self.orientation {
                 Orientation::Horizontal => Size::new(3, 24),
                 Orientation::Vertical => Size::new(24, 3),
             },
-            ToolbarItem::Custom { widget } => {
-                widget.measure(&LayoutConstraints::default(), theme)
-            }
+            ToolbarItem::Custom { widget } => widget.measure(&LayoutConstraints::default(), theme),
         }
     }
-    
+
     fn draw_button(
         &self,
         context: &mut dyn DrawContext,
@@ -204,45 +203,80 @@ impl Toolbar {
         } else {
             theme.colors.surface
         };
-        
+
         context.set_color(bg_color);
         context.fill_rect(rect);
-        
+
         // Draw border on hover or press
         if enabled && (hovered || pressed) {
             context.set_color(theme.colors.primary);
             context.draw_rect(rect);
         }
-        
+
         let mut x = rect.x() + self.item_padding;
         let center_y = rect.center().y;
-        
+
         // Draw icon
         if let Some(icon) = icon {
-            let icon_rect = Rect::new(x, center_y - 8, 16, 16);
+            let icon_size = 24;
+            let icon_rect = Rect::new(x, center_y - icon_size / 2, icon_size, icon_size);
             let icon_color = if !enabled {
                 theme.colors.text_disabled
             } else {
                 theme.colors.text
             };
-            
+
             match icon {
-                ButtonIcon::Back => crate::icon::Icon::draw_back_arrow(context, icon_rect, icon_color),
-                ButtonIcon::Forward => crate::icon::Icon::draw_forward_arrow(context, icon_rect, icon_color),
+                ButtonIcon::Back => {
+                    crate::icon::Icon::draw_back_arrow(context, icon_rect, icon_color)
+                }
+                ButtonIcon::Forward => {
+                    crate::icon::Icon::draw_forward_arrow(context, icon_rect, icon_color)
+                }
                 ButtonIcon::Up => crate::icon::Icon::draw_up_arrow(context, icon_rect, icon_color),
                 ButtonIcon::Home => crate::icon::Icon::draw_home(context, icon_rect, icon_color),
-                ButtonIcon::Refresh => crate::icon::Icon::draw_refresh(context, icon_rect, icon_color),
-                ButtonIcon::Folder => crate::icon::Icon::draw_folder(context, icon_rect, icon_color),
-                ButtonIcon::FolderNew => crate::icon::Icon::draw_folder_new(context, icon_rect, icon_color),
-                ButtonIcon::Delete => crate::icon::Icon::draw_delete(context, icon_rect, icon_color),
+                ButtonIcon::Refresh => {
+                    crate::icon::Icon::draw_refresh(context, icon_rect, icon_color)
+                }
+                ButtonIcon::Folder => {
+                    crate::icon::Icon::draw_folder(context, icon_rect, icon_color)
+                }
+                ButtonIcon::FolderNew => {
+                    crate::icon::Icon::draw_folder_new(context, icon_rect, icon_color)
+                }
+                ButtonIcon::Delete => {
+                    crate::icon::Icon::draw_delete(context, icon_rect, icon_color)
+                }
                 ButtonIcon::File => crate::icon::Icon::draw_file(context, icon_rect, icon_color),
-                ButtonIcon::Search => crate::icon::Icon::draw_search(context, icon_rect, icon_color),
+                ButtonIcon::Search => {
+                    crate::icon::Icon::draw_search(context, icon_rect, icon_color)
+                }
                 ButtonIcon::Custom(draw_fn) => draw_fn(context, icon_rect, icon_color),
+                ButtonIcon::Bitmap {
+                    width,
+                    height,
+                    data,
+                } => {
+                    // Center the bitmap with a small inset and keep aspect.
+                    let avail_w = icon_rect.width() - 6;
+                    let avail_h = icon_rect.height() - 6;
+                    let scale =
+                        (avail_w as f32 / *width as f32).min(avail_h as f32 / *height as f32);
+                    let draw_w = (*width as f32 * scale) as i32;
+                    let draw_h = (*height as f32 * scale) as i32;
+                    let draw_rect = Rect::new(
+                        icon_rect.x() + (icon_rect.width() - draw_w) / 2,
+                        icon_rect.y() + (icon_rect.height() - draw_h) / 2,
+                        draw_w,
+                        draw_h,
+                    );
+                    context.draw_image_rgba(draw_rect, *width, *height, data);
+                }
             }
-            
-            x += 16 + theme.spacing.gap_small;
+
+            x += icon_size + theme.spacing.gap_small;
         }
-        
+
         // Draw text
         if self.show_text && !text.is_empty() {
             let text_color = if !enabled {
@@ -250,26 +284,32 @@ impl Toolbar {
             } else {
                 theme.colors.text
             };
-            
+
             context.set_color(text_color);
             context.draw_text(
                 text,
                 Point::new(x, center_y + theme.typography.font_size_base / 2 - 2),
-                theme.typography.font_size_base
+                theme.typography.font_size_base,
             );
         }
     }
-    
-    fn draw_dropdown_arrow(&self, context: &mut dyn DrawContext, theme: &Theme, rect: Rect, enabled: bool) {
+
+    fn draw_dropdown_arrow(
+        &self,
+        context: &mut dyn DrawContext,
+        theme: &Theme,
+        rect: Rect,
+        enabled: bool,
+    ) {
         let arrow_x = rect.right() - 10;
         let arrow_y = rect.center().y;
-        
+
         let color = if enabled {
             theme.colors.text
         } else {
             theme.colors.text_disabled
         };
-        
+
         context.set_color(color);
         context.fill_rect(Rect::new(arrow_x, arrow_y - 1, 5, 1));
         context.fill_rect(Rect::new(arrow_x + 1, arrow_y, 3, 1));
@@ -281,13 +321,13 @@ impl Widget for Toolbar {
     fn id(&self) -> WidgetId {
         self.state.id
     }
-    
+
     fn measure(&self, constraints: &LayoutConstraints, theme: &Theme) -> Size {
         let mut total_size = Size::ZERO;
-        
+
         for (i, item) in self.items.iter().enumerate() {
             let item_size = self.calculate_item_size(item, theme);
-            
+
             match self.orientation {
                 Orientation::Horizontal => {
                     total_size.width += item_size.width;
@@ -305,7 +345,7 @@ impl Widget for Toolbar {
                 }
             }
         }
-        
+
         // Constrain to max size
         if let Some(max_width) = constraints.max_width {
             total_size.width = total_size.width.min(max_width);
@@ -313,110 +353,142 @@ impl Widget for Toolbar {
         if let Some(max_height) = constraints.max_height {
             total_size.height = total_size.height.min(max_height);
         }
-        
+
         total_size
     }
-    
+
     fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
-        
+
         // Calculate which items fit
         self.overflow_items.clear();
         let mut current_pos = match self.orientation {
             Orientation::Horizontal => rect.x(),
             Orientation::Vertical => rect.y(),
         };
-        
+
         let overflow_button_size = 20; // Space for overflow button if needed
         let available_space = match self.orientation {
             Orientation::Horizontal => rect.width() - overflow_button_size,
             Orientation::Vertical => rect.height() - overflow_button_size,
         };
-        
+
         for (i, item) in self.items.iter().enumerate() {
             let item_size = self.calculate_item_size(item, theme);
             let item_extent = match self.orientation {
                 Orientation::Horizontal => item_size.width,
                 Orientation::Vertical => item_size.height,
             };
-            
+
             let new_pos = current_pos + item_extent + if i > 0 { self.item_spacing } else { 0 };
             let item_end = match self.orientation {
                 Orientation::Horizontal => new_pos - rect.x(),
                 Orientation::Vertical => new_pos - rect.y(),
             };
-            
+
             if item_end > available_space {
                 self.overflow_items.push(i);
             } else {
                 current_pos = new_pos;
             }
         }
-        
+
         self.overflow_button_visible = !self.overflow_items.is_empty();
     }
-    
+
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
         if !self.state.visible {
             return;
         }
-        
+
         // Draw background
         context.set_color(theme.colors.surface);
         context.fill_rect(self.state.bounds);
-        
+
         let mut current_pos = match self.orientation {
             Orientation::Horizontal => self.state.bounds.x(),
             Orientation::Vertical => self.state.bounds.y(),
         };
-        
+
         // Draw items
         for (i, item) in self.items.iter().enumerate() {
             if self.overflow_items.contains(&i) {
                 continue;
             }
-            
+
             let item_size = self.calculate_item_size(item, theme);
             let item_rect = match self.orientation {
                 Orientation::Horizontal => Rect::new(
                     current_pos,
                     self.state.bounds.y() + (self.state.bounds.height() - item_size.height) / 2,
                     item_size.width,
-                    item_size.height
+                    item_size.height,
                 ),
                 Orientation::Vertical => Rect::new(
                     self.state.bounds.x() + (self.state.bounds.width() - item_size.width) / 2,
                     current_pos,
                     item_size.width,
-                    item_size.height
+                    item_size.height,
                 ),
             };
-            
+
             match item {
-                ToolbarItem::Button { text, icon, enabled, .. } => {
+                ToolbarItem::Button {
+                    text,
+                    icon,
+                    enabled,
+                    ..
+                } => {
                     let hovered = self.hovered_item == Some(i);
-                    self.draw_button(context, theme, item_rect, text, icon, *enabled, false, hovered);
+                    self.draw_button(
+                        context, theme, item_rect, text, icon, *enabled, false, hovered,
+                    );
                 }
-                ToolbarItem::DropdownButton { text, icon, enabled, .. } => {
+                ToolbarItem::DropdownButton {
+                    text,
+                    icon,
+                    enabled,
+                    ..
+                } => {
                     let hovered = self.hovered_item == Some(i);
                     let active = self.active_dropdown == Some(i);
-                    self.draw_button(context, theme, item_rect, text, icon, *enabled, active, hovered);
+                    self.draw_button(
+                        context, theme, item_rect, text, icon, *enabled, active, hovered,
+                    );
                     self.draw_dropdown_arrow(context, theme, item_rect, *enabled);
                 }
-                ToolbarItem::ToggleButton { text, icon, pressed, enabled, .. } => {
+                ToolbarItem::ToggleButton {
+                    text,
+                    icon,
+                    pressed,
+                    enabled,
+                    ..
+                } => {
                     let hovered = self.hovered_item == Some(i);
-                    self.draw_button(context, theme, item_rect, text, icon, *enabled, *pressed, hovered);
+                    self.draw_button(
+                        context, theme, item_rect, text, icon, *enabled, *pressed, hovered,
+                    );
                 }
                 ToolbarItem::Separator => {
                     context.set_color(theme.colors.border);
                     match self.orientation {
                         Orientation::Horizontal => {
                             let x = item_rect.center().x;
-                            context.fill_rect(Rect::new(x, item_rect.y() + 4, 1, item_rect.height() - 8));
+                            context.fill_rect(Rect::new(
+                                x,
+                                item_rect.y() + 4,
+                                1,
+                                item_rect.height() - 8,
+                            ));
                         }
                         Orientation::Vertical => {
                             let y = item_rect.center().y;
-                            context.fill_rect(Rect::new(item_rect.x() + 4, y, item_rect.width() - 8, 1));
+                            context.fill_rect(Rect::new(
+                                item_rect.x() + 4,
+                                y,
+                                item_rect.width() - 8,
+                                1,
+                            ));
                         }
                     }
                 }
@@ -424,17 +496,17 @@ impl Widget for Toolbar {
                     widget.draw(context, theme);
                 }
             }
-            
+
             current_pos += match self.orientation {
                 Orientation::Horizontal => item_size.width,
                 Orientation::Vertical => item_size.height,
             };
-            
+
             if i < self.items.len() - 1 && !self.overflow_items.contains(&(i + 1)) {
                 current_pos += self.item_spacing;
             }
         }
-        
+
         // Draw overflow button if needed
         if self.overflow_button_visible {
             let overflow_rect = match self.orientation {
@@ -442,19 +514,19 @@ impl Widget for Toolbar {
                     self.state.bounds.right() - 20,
                     self.state.bounds.y(),
                     20,
-                    self.state.bounds.height()
+                    self.state.bounds.height(),
                 ),
                 Orientation::Vertical => Rect::new(
                     self.state.bounds.x(),
                     self.state.bounds.bottom() - 20,
                     self.state.bounds.width(),
-                    20
+                    20,
                 ),
             };
-            
+
             context.set_color(theme.colors.surface_variant);
             context.fill_rect(overflow_rect);
-            
+
             // Draw >> or vv symbol
             context.set_color(theme.colors.text);
             let center = overflow_rect.center();
@@ -469,17 +541,17 @@ impl Widget for Toolbar {
                 }
             }
         }
-        
+
         // Draw border
         context.set_color(theme.colors.border);
         context.draw_rect(self.state.bounds);
     }
-    
+
     fn handle_event(&mut self, event: &Event, theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
             return EventResult::Ignored;
         }
-        
+
         match event {
             Event::MouseButton(MouseButtonEvent {
                 button: MouseButton::Left,
@@ -491,37 +563,37 @@ impl Widget for Toolbar {
                     self.active_dropdown = None;
                     return EventResult::Ignored;
                 }
-                
+
                 // Find which item was clicked
                 let mut clicked_item: Option<usize> = None;
                 let mut clicked_action = None;
-                
+
                 let mut current_pos = match self.orientation {
                     Orientation::Horizontal => self.state.bounds.x(),
                     Orientation::Vertical => self.state.bounds.y(),
                 };
-                
+
                 for (i, item) in self.items.iter().enumerate() {
                     if self.overflow_items.contains(&i) {
                         continue;
                     }
-                    
+
                     let item_size = self.calculate_item_size(item, theme);
                     let item_rect = match self.orientation {
                         Orientation::Horizontal => Rect::new(
                             current_pos,
                             self.state.bounds.y(),
                             item_size.width,
-                            self.state.bounds.height()
+                            self.state.bounds.height(),
                         ),
                         Orientation::Vertical => Rect::new(
                             self.state.bounds.x(),
                             current_pos,
                             self.state.bounds.width(),
-                            item_size.height
+                            item_size.height,
                         ),
                     };
-                    
+
                     if item_rect.contains(*position) {
                         clicked_item = Some(i);
                         match item {
@@ -544,17 +616,17 @@ impl Widget for Toolbar {
                         }
                         break;
                     }
-                    
+
                     current_pos += match self.orientation {
                         Orientation::Horizontal => item_size.width,
                         Orientation::Vertical => item_size.height,
                     };
-                    
+
                     if i < self.items.len() - 1 {
                         current_pos += self.item_spacing;
                     }
                 }
-                
+
                 // Handle the click action
                 if let Some(index) = clicked_item {
                     match clicked_action {
@@ -572,19 +644,24 @@ impl Widget for Toolbar {
                             // First toggle the button
                             let mut group_id = None;
                             let mut was_pressed = false;
-                            
-                            if let ToolbarItem::ToggleButton { pressed, group, .. } = &mut self.items[index] {
+
+                            if let ToolbarItem::ToggleButton { pressed, group, .. } =
+                                &mut self.items[index]
+                            {
                                 *pressed = !*pressed;
                                 was_pressed = *pressed;
                                 group_id = *group;
                             }
-                            
+
                             // Handle toggle groups
                             if was_pressed && group_id.is_some() {
                                 let gid = group_id.unwrap();
                                 for (j, item) in self.items.iter_mut().enumerate() {
                                     if index != j {
-                                        if let ToolbarItem::ToggleButton { pressed, group, .. } = item {
+                                        if let ToolbarItem::ToggleButton {
+                                            pressed, group, ..
+                                        } = item
+                                        {
                                             if *group == Some(gid) {
                                                 *pressed = false;
                                             }
@@ -592,9 +669,11 @@ impl Widget for Toolbar {
                                     }
                                 }
                             }
-                            
+
                             // Call the callback
-                            if let ToolbarItem::ToggleButton { on_toggle, .. } = &mut self.items[index] {
+                            if let ToolbarItem::ToggleButton { on_toggle, .. } =
+                                &mut self.items[index]
+                            {
                                 if let Some(callback) = on_toggle {
                                     callback(was_pressed);
                                 }
@@ -610,46 +689,46 @@ impl Widget for Toolbar {
                     self.hovered_item = None;
                     return EventResult::Ignored;
                 }
-                
+
                 // Find which item is hovered
                 let mut current_pos = match self.orientation {
                     Orientation::Horizontal => self.state.bounds.x(),
                     Orientation::Vertical => self.state.bounds.y(),
                 };
-                
+
                 self.hovered_item = None;
-                
+
                 for (i, item) in self.items.iter().enumerate() {
                     if self.overflow_items.contains(&i) {
                         continue;
                     }
-                    
+
                     let item_size = self.calculate_item_size(item, theme);
                     let item_rect = match self.orientation {
                         Orientation::Horizontal => Rect::new(
                             current_pos,
                             self.state.bounds.y(),
                             item_size.width,
-                            self.state.bounds.height()
+                            self.state.bounds.height(),
                         ),
                         Orientation::Vertical => Rect::new(
                             self.state.bounds.x(),
                             current_pos,
                             self.state.bounds.width(),
-                            item_size.height
+                            item_size.height,
                         ),
                     };
-                    
+
                     if item_rect.contains(move_event.position) {
                         self.hovered_item = Some(i);
                         return EventResult::Consumed;
                     }
-                    
+
                     current_pos += match self.orientation {
                         Orientation::Horizontal => item_size.width,
                         Orientation::Vertical => item_size.height,
                     };
-                    
+
                     if i < self.items.len() - 1 {
                         current_pos += self.item_spacing;
                     }
@@ -657,50 +736,50 @@ impl Widget for Toolbar {
             }
             _ => {}
         }
-        
+
         EventResult::Ignored
     }
-    
+
     fn bounds(&self) -> Rect {
         self.state.bounds
     }
-    
+
     fn set_bounds(&mut self, bounds: Rect) {
         self.state.bounds = bounds;
     }
-    
+
     fn is_visible(&self) -> bool {
         self.state.visible
     }
-    
+
     fn set_visible(&mut self, visible: bool) {
         self.state.visible = visible;
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.state.enabled
     }
-    
+
     fn set_enabled(&mut self, enabled: bool) {
         self.state.enabled = enabled;
     }
-    
+
     fn is_focused(&self) -> bool {
         self.state.focused
     }
-    
+
     fn set_focused(&mut self, focused: bool) {
         self.state.focused = focused;
     }
-    
+
     fn can_focus(&self) -> bool {
         self.state.enabled && self.state.visible
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
-    
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }

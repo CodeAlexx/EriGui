@@ -12,3 +12,4 @@ glam = { workspace = true }
 bitflags = { workspace = true }
 slotmap = { workspace = true }
 smallvec = { workspace = true }
+serde = { version = "1", features = ["derive"] }

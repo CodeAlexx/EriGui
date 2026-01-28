@@ -240,8 +240,13 @@ impl DateTimePicker {
 
     fn first_day_of_week(year: i32, month: u32) -> u32 {
         // Get day of week for first day of month (0 = Sunday, 6 = Saturday)
-        let date = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
-        date.weekday().num_days_from_sunday()
+        // Validate month is in valid range, default to Sunday if date creation fails
+        if !(1..=12).contains(&month) {
+            return 0; // Default to Sunday for invalid month
+        }
+        NaiveDate::from_ymd_opt(year, month, 1)
+            .map(|date| date.weekday().num_days_from_sunday())
+            .unwrap_or(0) // Default to Sunday if date creation fails
     }
 
     fn draw_calendar(&self, context: &mut dyn DrawContext, theme: &Theme) {
@@ -579,19 +584,21 @@ impl DateTimePicker {
             let day_rect = Rect::new(x, y, cell_size, cell_size);
 
             if day_rect.contains(position) {
-                // Update selected date
-                let new_date =
-                    NaiveDate::from_ymd_opt(self.viewing_year, self.viewing_month, day).unwrap();
-                self.selected_datetime =
-                    NaiveDateTime::new(new_date, self.selected_datetime.time());
-                self.update_input_text();
-                self.notify_change();
+                // Update selected date with validation
+                if let Some(new_date) =
+                    NaiveDate::from_ymd_opt(self.viewing_year, self.viewing_month, day)
+                {
+                    self.selected_datetime =
+                        NaiveDateTime::new(new_date, self.selected_datetime.time());
+                    self.update_input_text();
+                    self.notify_change();
 
-                // Close calendar if in date-only mode
-                if self.mode == DateTimePickerMode::Date {
-                    self.show_calendar = false;
+                    // Close calendar if in date-only mode
+                    if self.mode == DateTimePickerMode::Date {
+                        self.show_calendar = false;
+                    }
                 }
-
+                // Always return true since we handled the click, even if date was invalid
                 return true;
             }
         }
@@ -684,10 +691,13 @@ impl DateTimePicker {
 
         let final_minute = minute.min(59);
 
-        let new_time = NaiveTime::from_hms_opt(final_hour, final_minute, 0).unwrap();
-        self.selected_datetime = NaiveDateTime::new(self.selected_datetime.date(), new_time);
-        self.update_input_text();
-        self.notify_change();
+        // Safely create time with validation - use current time as fallback
+        if let Some(new_time) = NaiveTime::from_hms_opt(final_hour, final_minute, 0) {
+            self.selected_datetime = NaiveDateTime::new(self.selected_datetime.date(), new_time);
+            self.update_input_text();
+            self.notify_change();
+        }
+        // If time creation fails (shouldn't happen with clamped values), keep existing time
     }
 }
 

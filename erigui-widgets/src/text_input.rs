@@ -76,6 +76,21 @@ impl TextInput {
         (theme.typography.font_size_base as f32 * 0.55).round() as i32
     }
 
+    /// Ensures cursor_pos is at a valid UTF-8 character boundary.
+    /// If not, snaps to the nearest valid boundary (preferring backward).
+    fn safe_cursor_pos(&self) -> usize {
+        if self.text.is_char_boundary(self.cursor_pos) {
+            self.cursor_pos
+        } else {
+            // Find the previous valid boundary
+            self.text[..self.cursor_pos]
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0)
+        }
+    }
+
     fn ensure_cursor_visible(&mut self, theme: &Theme) {
         let inner = self.state.bounds.inset(4);
         let cursor_x = self.cursor_pixel(theme);
@@ -90,13 +105,17 @@ impl TextInput {
 
     fn cursor_pixel(&self, theme: &Theme) -> i32 {
         let char_w = self.approx_char_width(theme);
-        (self.text[..self.cursor_pos].chars().count() as i32) * char_w
+        let safe_pos = self.safe_cursor_pos();
+        (self.text[..safe_pos].chars().count() as i32) * char_w
     }
 
     fn insert_char(&mut self, ch: char, theme: &Theme) {
         if self.selection_start.is_some() {
             self.delete_selection();
         }
+        // Ensure we insert at a valid UTF-8 boundary
+        let safe_pos = self.safe_cursor_pos();
+        self.cursor_pos = safe_pos;
         self.text.insert(self.cursor_pos, ch);
         self.cursor_pos += ch.len_utf8();
         if let Some(callback) = &mut self.on_change {
@@ -106,11 +125,19 @@ impl TextInput {
     }
 
     fn delete_selection(&mut self) {
-        if let Some(start) = self.selection_start {
-            let (start, end) = if start < self.cursor_pos {
-                (start, self.cursor_pos)
+        if let Some(sel_start) = self.selection_start {
+            // Ensure both positions are at valid UTF-8 boundaries
+            let safe_sel_start = if self.text.is_char_boundary(sel_start) {
+                sel_start
             } else {
-                (self.cursor_pos, start)
+                self.text[..sel_start].char_indices().last().map(|(i, _)| i).unwrap_or(0)
+            };
+            let safe_cursor = self.safe_cursor_pos();
+
+            let (start, end) = if safe_sel_start < safe_cursor {
+                (safe_sel_start, safe_cursor)
+            } else {
+                (safe_cursor, safe_sel_start)
             };
             self.text.drain(start..end);
             self.cursor_pos = start;
@@ -193,7 +220,8 @@ impl Widget for TextInput {
         context.draw_text(display_text, text_pos, theme.typography.font_size_base);
 
         if self.state.focused && self.state.enabled {
-            let before = &self.text[..self.cursor_pos];
+            let safe_pos = self.safe_cursor_pos();
+            let before = &self.text[..safe_pos];
             let cursor_x = inner.x()
                 + context
                     .measure_text(before, theme.typography.font_size_base)

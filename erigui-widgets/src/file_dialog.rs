@@ -309,7 +309,8 @@ impl FileDialog {
             }
             FileDialogMode::Save => {
                 let filename = self.filename_input.get_text();
-                if !filename.is_empty() {
+                // Validate filename for security before proceeding
+                if validate_filename(&filename).is_ok() {
                     let mut path = self.current_path.join(&filename);
 
                     // Add extension if needed
@@ -320,10 +321,28 @@ impl FileDialog {
                         }
                     }
 
-                    if let Some(callback) = &mut self.on_file_selected {
-                        callback(&path);
+                    // Additional safety: ensure the final path is still within current_path
+                    // This catches edge cases where the filename might be crafted to escape
+                    if let (Ok(canonical_base), Ok(canonical_path)) = (
+                        self.current_path.canonicalize(),
+                        path.parent().and_then(|p| p.canonicalize().ok()).ok_or(()),
+                    ) {
+                        if canonical_path.starts_with(&canonical_base) {
+                            if let Some(callback) = &mut self.on_file_selected {
+                                callback(&path);
+                            }
+                        }
+                    } else {
+                        // If we can't canonicalize (file doesn't exist yet), allow if
+                        // the parent exists and is the current path
+                        if path.parent() == Some(self.current_path.as_path()) {
+                            if let Some(callback) = &mut self.on_file_selected {
+                                callback(&path);
+                            }
+                        }
                     }
                 }
+                // Silently ignore invalid filenames - UI should provide feedback
             }
             FileDialogMode::SelectFolder => {
                 if let Some(callback) = &mut self.on_file_selected {
@@ -332,6 +351,62 @@ impl FileDialog {
             }
         }
     }
+}
+
+/// Validates a filename to prevent path traversal and other security issues.
+/// Returns Ok(()) if the filename is safe, or Err with a description of the issue.
+fn validate_filename(filename: &str) -> Result<(), &'static str> {
+    // Check for empty filename
+    if filename.is_empty() {
+        return Err("Filename cannot be empty");
+    }
+
+    // Check for path traversal attempts
+    if filename.contains("..") {
+        return Err("Filename cannot contain path traversal sequences (..)");
+    }
+
+    // Check for path separators (should be a filename, not a path)
+    if filename.contains('/') || filename.contains('\\') {
+        return Err("Filename cannot contain path separators");
+    }
+
+    // Check for null bytes (could be used for injection attacks)
+    if filename.contains('\0') {
+        return Err("Filename cannot contain null bytes");
+    }
+
+    // Check for leading/trailing whitespace or dots (problematic on some systems)
+    let trimmed = filename.trim();
+    if trimmed != filename {
+        return Err("Filename cannot have leading or trailing whitespace");
+    }
+
+    if filename.starts_with('.') && filename.len() == 1 {
+        return Err("Filename cannot be just a dot");
+    }
+
+    // Check for reserved characters on Windows
+    const RESERVED_CHARS: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
+    for ch in RESERVED_CHARS {
+        if filename.contains(*ch) {
+            return Err("Filename contains reserved characters");
+        }
+    }
+
+    // Check for reserved names on Windows (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    let upper = filename.to_uppercase();
+    let base_name = upper.split('.').next().unwrap_or(&upper);
+    const RESERVED_NAMES: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED_NAMES.contains(&base_name) {
+        return Err("Filename uses a reserved system name");
+    }
+
+    Ok(())
 }
 
 fn format_file_size(size: u64) -> String {

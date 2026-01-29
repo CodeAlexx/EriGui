@@ -142,22 +142,25 @@ fn main() {
 - **SearchBox** - Search with suggestions
 - **DateTimePicker** - Date and time selection
 - **FileManager** - Dual-pane file browser
-- **NodeGraph** - Visual node-based editor for workflows and pipelines
+- **Node Widgets** - Building blocks for node-based applications
 
-## Node Graph Editor
+## Node Widgets
 
-EriGui includes a powerful node graph editor for building visual workflows:
+EriGui provides node widgets as building blocks for creating node-based applications:
 
 ![Node Graph Demo](docs/images/node_graph_demo.png)
 
-**Features:**
-- Drag & drop node creation from palette
-- Visual connections between node ports
-- Input/output ports with type validation
-- Editable node properties (text inputs, dropdowns)
-- Bezier curve connections with smooth rendering
-- Node selection and property panel
-- Customizable node types and port definitions
+**Available Node Widgets:**
+- **NodeWidget** - Draggable node with title, ports, and content area
+- **NodePort** - Input/output connection points with type hints
+- **NodeConnection** - Bezier curve connections between ports
+- **NodeCanvas** - Container for nodes with pan/zoom support
+
+**Build Your Own Node App:**
+- Compose node widgets to create visual programming interfaces
+- Shader editors, audio routing, workflow automation, etc.
+- Full control over node types, port definitions, and behavior
+- Widgets handle rendering and interaction, you define the logic
 
 ```bash
 cargo run --example node_graph_demo
@@ -238,7 +241,7 @@ Built with ❤️ in Rust for the modern Linux desktop!
 ## Version History
 
 - **v0.0.3-alpha** - Current release
-  - 30+ widgets implemented including NodeGraph editor
+  - 30+ widgets implemented including node widgets for building node-based apps
   - Production quality improvements:
     - DockPanel: Safe path-based navigation (removed raw pointers)
     - DateTimePicker: Safe date validation (removed unwrap panics)

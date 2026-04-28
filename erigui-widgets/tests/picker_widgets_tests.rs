@@ -701,13 +701,14 @@ fn color_picker_layout_event_smoke_does_not_panic() {
 // FileFilter is plain data with a `matches` predicate. Pure pinning.
 
 #[test]
-fn file_filter_matches_extension_case_sensitive() {
+fn file_filter_matches_extension_case_insensitive() {
     let f = FileFilter::new("JSON", vec!["json"]);
     assert!(f.matches(std::path::Path::new("foo.json")));
-    // The implementation does case-sensitive comparison: "JSON" != "json".
+    // Cross-platform parity: Windows is case-insensitive on FAT/NTFS,
+    // and "*.JPG" should match a "*.jpg" filter on every host.
     assert!(
-        !f.matches(std::path::Path::new("foo.JSON")),
-        "FileFilter matches uses case-sensitive extension compare"
+        f.matches(std::path::Path::new("foo.JSON")),
+        "FileFilter matches must be case-insensitive on extensions"
     );
     assert!(!f.matches(std::path::Path::new("foo.txt")));
 }

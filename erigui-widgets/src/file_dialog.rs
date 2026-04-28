@@ -40,7 +40,10 @@ impl FileFilter {
 
         if let Some(ext) = path.extension() {
             if let Some(ext_str) = ext.to_str() {
-                return self.extensions.iter().any(|e| e == "*" || e == ext_str);
+                return self
+                    .extensions
+                    .iter()
+                    .any(|e| e == "*" || e.eq_ignore_ascii_case(ext_str));
             }
         }
 

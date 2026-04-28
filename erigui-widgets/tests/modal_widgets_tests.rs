@@ -493,6 +493,28 @@ fn notification_with_progress_clamps() {
 }
 
 #[test]
+fn notification_set_progress_updates_value() {
+    // set_progress is the runtime sibling of with_progress, used to
+    // advance a progress bar on an already-shown notification.
+    let mut n = Notification::new("x", "T", "M").with_progress(0.0);
+    assert_eq!(n.progress, Some(0.0));
+    n.set_progress(0.25);
+    assert_eq!(n.progress, Some(0.25));
+    n.set_progress(0.75);
+    assert_eq!(n.progress, Some(0.75));
+}
+
+#[test]
+fn notification_set_progress_clamps() {
+    // Same clamp contract as with_progress: floor 0.0, ceiling 1.0.
+    let mut n = Notification::new("x", "T", "M");
+    n.set_progress(-0.5);
+    assert_eq!(n.progress, Some(0.0), "set_progress floor is 0.0");
+    n.set_progress(1.5);
+    assert_eq!(n.progress, Some(1.0), "set_progress ceiling is 1.0");
+}
+
+#[test]
 fn notification_remaining_ratio_is_in_range() {
     // Just-created notification with 5s default duration has
     // remaining_ratio in (0, 1]. We don't sleep -- we only verify the

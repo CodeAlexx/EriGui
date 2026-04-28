@@ -93,6 +93,14 @@ impl Notification {
         self
     }
 
+    /// Update the progress value at runtime. Mirrors `with_progress`
+    /// but operates on an existing notification, e.g. so a long-running
+    /// task can advance its progress bar without rebuilding the
+    /// notification each tick. Clamps to [0.0, 1.0].
+    pub fn set_progress(&mut self, progress: f32) {
+        self.progress = Some(progress.clamp(0.0, 1.0));
+    }
+
     pub fn is_expired(&self) -> bool {
         self.created_at.elapsed() >= self.duration
     }

@@ -760,6 +760,13 @@ impl Widget for FileDialog {
                     }
                 }
                 Key::Escape => {
+                    // Modal contract: Escape unconditionally cancels the
+                    // dialog regardless of which inner widget has focus.
+                    // This matches macOS / Windows / GTK native pickers
+                    // — Esc on a modal closes the modal. Hosts that want
+                    // Esc-clears-input-instead must implement that at the
+                    // app level above the FileDialog. Filename input has
+                    // Ctrl+A then Backspace for clearing.
                     if let Some(callback) = &mut self.on_cancel {
                         callback();
                     }

@@ -415,10 +415,21 @@ impl Widget for Dialog {
         self.state.enabled = enabled;
     }
 
+    /// Dialog "focus" is wired to its open/closed state, NOT to the
+    /// generic `WidgetState::focused` field. This is intentional: a
+    /// modal Dialog is "focused" when it is the active modal, and
+    /// otherwise it is dismissed entirely. The alternative — a
+    /// real `state.focused` field — would let a Dialog be focused-
+    /// but-not-open, which has no useful semantics. macOS NSPanel
+    /// modals work the same way.
     fn is_focused(&self) -> bool {
         self.is_open
     }
 
+    /// `set_focused(false)` only clears in-progress drag state; the
+    /// dialog's open/closed state is owned by the host via the
+    /// dismiss flow (close button, `is_open = false`). Hosts should
+    /// not rely on `set_focused` to open/close the dialog.
     fn set_focused(&mut self, focused: bool) {
         if !focused {
             self.is_dragging = false;

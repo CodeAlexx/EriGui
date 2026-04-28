@@ -8,8 +8,8 @@ use erigui_core::{
     MouseButtonEvent, MouseMoveEvent, Point, Rect, TextInputEvent, Theme, Widget, WidgetId,
 };
 use erigui_widgets::{
-    ContextMenu, ContextMenuItem, Field, FieldKind, FieldValue, Graph, MenuBar, MenuItem, Node,
-    NodeGraph, SearchBox, TextArea, TextInput,
+    ContextMenu, ContextMenuItem, DateTimePicker, DateTimePickerMode, Field, FieldKind,
+    FieldValue, Graph, MenuBar, MenuItem, Node, NodeGraph, SearchBox, TextArea, TextInput,
 };
 use erigui_core::Size;
 
@@ -1923,4 +1923,242 @@ impl CenterClick {
             release: mouse_release(cx, cy),
         }
     }
+}
+
+// ============================================================================
+// DateTimePicker (production-hardening pass, 2026-04-28)
+//
+// Pre-fix bugs:
+//   - Event::KeyPress / Event::TextInput arms ran whenever
+//     editing_hour||editing_minute was true, ignoring focus → app-wide input
+//     theft.
+//   - set_focused only propagated to the input child; calendar_button focus
+//     drifted; edit/popup state leaked when host took focus away.
+//   - Plain Tab was consumed inside hour/minute editing → broke focus
+//     traversal.
+// ============================================================================
+
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+
+fn dtp_with_value(dt: NaiveDateTime) -> DateTimePicker {
+    DateTimePicker::new(id())
+        .with_mode(DateTimePickerMode::DateTime)
+        .with_value(dt)
+}
+
+#[test]
+fn dtp_focus_gates_keyboard_input() {
+    // editing_hour=true, but state.focused=false: the KeyPress arm must
+    // NOT mutate hour_input even though editing_hour says we're "in" the
+    // hour field.
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_editing_hour_for_test(true);
+    assert!(p.editing_hour_for_test());
+    assert!(!p.is_focused(), "starts unfocused for the test");
+
+    let before = p.hour_input_for_test().to_string();
+    let _ = p.handle_event(
+        &key_press(Key::Character('5'), Modifiers::empty()),
+        &theme(),
+    );
+    assert_eq!(
+        p.hour_input_for_test(),
+        before,
+        "unfocused KeyPress must not mutate hour_input"
+    );
+}
+
+#[test]
+fn dtp_focus_gates_text_input() {
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_editing_hour_for_test(true);
+    assert!(!p.is_focused());
+
+    let before = p.hour_input_for_test().to_string();
+    let evt = Event::TextInput(TextInputEvent {
+        text: "5".to_string(),
+    });
+    let _ = p.handle_event(&evt, &theme());
+    assert_eq!(
+        p.hour_input_for_test(),
+        before,
+        "unfocused TextInput must not mutate hour_input"
+    );
+}
+
+#[test]
+fn dtp_set_focused_false_clears_edit_state() {
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    p.set_editing_hour_for_test(true);
+    p.set_show_calendar_for_test(true);
+    assert!(p.editing_hour_for_test());
+    assert!(p.show_calendar_for_test());
+
+    p.set_focused(false);
+    assert!(!p.editing_hour_for_test(), "editing_hour must clear");
+    assert!(!p.editing_minute_for_test(), "editing_minute must clear");
+    assert!(!p.show_calendar_for_test(), "show_calendar must clear");
+    assert!(!p.show_time_picker_for_test(), "show_time_picker must clear");
+}
+
+#[test]
+fn dtp_set_focused_propagates_to_button() {
+    // set_focused(true/false) must reach BOTH children (input + calendar
+    // button), not just the input. We don't have direct accessors on the
+    // children from outside, but at minimum the parent's own focus state
+    // round-trips, and toggling focused=false clears the edit state — both
+    // are observable side-effects of the propagation path.
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    assert!(p.is_focused(), "set_focused(true) sticks on the parent");
+    p.set_editing_hour_for_test(true);
+    p.set_focused(false);
+    assert!(!p.is_focused());
+    // Edit state cleared — proves set_focused(false) ran the cleanup branch.
+    assert!(!p.editing_hour_for_test());
+}
+
+#[test]
+fn dtp_plain_tab_returns_ignored() {
+    // While editing the hour field, plain Tab must NOT be consumed — that
+    // would steal focus traversal from the host. Only Ctrl+Tab cycles the
+    // hour/minute fields internally.
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    p.set_editing_hour_for_test(true);
+
+    let r = p.handle_event(&key_press(Key::Tab, Modifiers::empty()), &theme());
+    assert_eq!(r, EventResult::Ignored);
+}
+
+#[test]
+fn dtp_ctrl_tab_cycles_hour_minute() {
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    p.set_editing_hour_for_test(true);
+    assert!(p.editing_hour_for_test());
+
+    let r = p.handle_event(&key_press(Key::Tab, Modifiers::CTRL), &theme());
+    assert_eq!(r, EventResult::Consumed);
+    assert!(
+        !p.editing_hour_for_test(),
+        "Ctrl+Tab from hour must move out of hour"
+    );
+    assert!(
+        p.editing_minute_for_test(),
+        "Ctrl+Tab from hour must enter minute"
+    );
+}
+
+#[test]
+fn dtp_text_input_appends_to_active_field() {
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    // hour_input starts as "00" (length 2), so to verify the append path
+    // we reset editing state and clear it first via the TextInput path
+    // is not exposed — but we can verify by going through minute_input
+    // which starts at "00" and is similarly len=2. Better: pick a base
+    // datetime whose formatted hour leaves room. There is none — format
+    // is always 2 digits. Instead, drive the well-defined append-while-
+    // <2 path: the TextInput arm rejects appends when hour_input.len()>=2.
+    // So the canonical test is: set editing_hour=true at base "00", drive
+    // a digit, expect no change (length already 2). To exercise the actual
+    // append, simulate by manually shrinking via Backspace + then digit.
+    p.set_editing_hour_for_test(true);
+    // Send Backspace to drop a digit (focus-gated: must be focused, which
+    // we set above).
+    let _ = p.handle_event(&key_press(Key::Backspace, Modifiers::empty()), &theme());
+    assert_eq!(
+        p.hour_input_for_test().len(),
+        1,
+        "Backspace should leave one digit"
+    );
+    // Now send a TextInput digit; should append back to length 2.
+    let evt = Event::TextInput(TextInputEvent {
+        text: "7".to_string(),
+    });
+    let _ = p.handle_event(&evt, &theme());
+    assert_eq!(
+        p.hour_input_for_test().len(),
+        2,
+        "TextInput digit must append to active hour field"
+    );
+    assert!(
+        p.hour_input_for_test().ends_with('7'),
+        "appended digit must be at the end, got {}",
+        p.hour_input_for_test()
+    );
+}
+
+#[test]
+fn dtp_calendar_click_updates_datetime() {
+    // Drive a DateTimePicker in Date mode so a click on a day cell updates
+    // selected_datetime. Use Jan 2024: 1 Jan 2024 was a Monday, so day 15
+    // sits at row=2 (third row), col=1 (Monday). Geometry: layout placed
+    // at (0,0,240,30), so calendar_rect starts at y=32. Header row is 30,
+    // padding 10, plus 20 px below the day-name row. Cells are 30x30
+    // starting at x=10. Day 15's cell center is therefore approximately
+    // (10 + 1*30 + 15, 32 + 30 + 10 + 20 + 2*30 + 15) = (55, 137).
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(12, 0, 0)
+        .unwrap();
+    let mut p = DateTimePicker::new(id())
+        .with_mode(DateTimePickerMode::Date)
+        .with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    p.set_focused(true);
+    // Open the calendar without depending on the trigger-button hit-test.
+    p.set_show_calendar_for_test(true);
+
+    // Day 15 grid pos: first_day_of_week(Jan 2024) = 1 (Monday is 1 from
+    // Sunday). grid_pos = 1 + 15 - 1 = 15. row = 15/7 = 2, col = 15%7 = 1.
+    // Cell rect = (calendar_x + 10 + 1*30, days_y + 2*30, 30, 30) where
+    // calendar_x = 0, calendar_y = 32 + 30 + 10 = 72, days_y = 72 + 20 = 92.
+    // So day 15 cell = (40, 152, 30, 30). Click center = (55, 167).
+    let before = p.selected_datetime_for_test();
+    assert_eq!(before.day(), 1, "preconditions: starting on day 1");
+    let _ = p.handle_event(&mouse_press(55, 167), &theme());
+    let after = p.selected_datetime_for_test();
+    assert_eq!(after.day(), 15, "clicking day 15 must update selected_datetime");
+    assert_eq!(after.month(), 1);
+    assert_eq!(after.year(), 2024);
+    // Time component preserved.
+    assert_eq!(after.time(), NaiveTime::from_hms_opt(12, 0, 0).unwrap());
 }

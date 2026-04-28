@@ -153,6 +153,65 @@ impl DateTimePicker {
         self.selected_datetime
     }
 
+    /// Test/debug accessor: whether the hour input is currently being edited.
+    #[doc(hidden)]
+    pub fn editing_hour_for_test(&self) -> bool {
+        self.editing_hour
+    }
+
+    /// Test/debug accessor: whether the minute input is currently being edited.
+    #[doc(hidden)]
+    pub fn editing_minute_for_test(&self) -> bool {
+        self.editing_minute
+    }
+
+    /// Test/debug accessor: whether the calendar popup is open.
+    #[doc(hidden)]
+    pub fn show_calendar_for_test(&self) -> bool {
+        self.show_calendar
+    }
+
+    /// Test/debug accessor: whether the time picker popup is open.
+    #[doc(hidden)]
+    pub fn show_time_picker_for_test(&self) -> bool {
+        self.show_time_picker
+    }
+
+    /// Test/debug accessor: the currently selected datetime.
+    #[doc(hidden)]
+    pub fn selected_datetime_for_test(&self) -> NaiveDateTime {
+        self.selected_datetime
+    }
+
+    /// Test/debug accessor: current hour-input string (raw, before parsing).
+    #[doc(hidden)]
+    pub fn hour_input_for_test(&self) -> &str {
+        &self.hour_input
+    }
+
+    /// Test/debug accessor: current minute-input string (raw, before parsing).
+    #[doc(hidden)]
+    pub fn minute_input_for_test(&self) -> &str {
+        &self.minute_input
+    }
+
+    /// Test-only setter for editing_hour (so tests can reach the focus-gated
+    /// state without depending on click coordinates).
+    #[doc(hidden)]
+    pub fn set_editing_hour_for_test(&mut self, editing: bool) {
+        self.editing_hour = editing;
+        if editing {
+            self.editing_minute = false;
+        }
+    }
+
+    /// Test-only setter for show_calendar (so tests can drive popup state
+    /// without depending on click coordinates).
+    #[doc(hidden)]
+    pub fn set_show_calendar_for_test(&mut self, show: bool) {
+        self.show_calendar = show;
+    }
+
     pub fn set_value(&mut self, datetime: NaiveDateTime) {
         self.selected_datetime = datetime;
         self.viewing_year = datetime.year();

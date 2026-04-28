@@ -28,10 +28,6 @@ name = "widget_gallery"
 path = "examples/widget_gallery.rs"
 
 [[example]]
-name = "file_manager"
-path = "examples/file_manager.rs"
-
-[[example]]
 name = "text_demo"
 path = "examples/text_demo.rs"
 
@@ -50,7 +46,3 @@ path = "examples/advanced_rendering.rs"
 [[example]]
 name = "memory_check"
 path = "examples/memory_check.rs"
-
-[[example]]
-name = "file_manager_demo"
-path = "examples/file_manager_demo.rs"

@@ -4,7 +4,7 @@ use erigui_core::{
 };
 use erigui_rendering::{convert_window_event, Renderer};
 use erigui_widgets::{
-    Button, Container, Label, ListItem, ListView, ScrollView, TextAlign, TextInput, TreeNode,
+    Button, Container, Label, ListItem, ListView, TextAlign, TextInput, TreeNode,
     TreeView, WidgetId, WidgetManager,
 };
 
@@ -177,20 +177,13 @@ impl App {
                 .with_on_selection_change(|index| println!("Selected item: {:?}", index)),
         ));
 
-        // Wrap in scroll view
-        let scroll_id = widget_manager.add_widget(Box::new(ScrollView::new(WidgetId::default())));
-
-        // Add list to scroll view
-        if let Some(scroll) = widget_manager.get_typed_mut::<ScrollView>(scroll_id) {
-            scroll.set_child(Some(list_id));
-        }
-
-        // Add to container
+        // Add list directly to container (ScrollView was a Mojo-port stub
+        // that's been removed; ListView now scrolls itself).
         let container = widget_manager
             .get_typed_mut::<Container>(container_id)
             .unwrap();
         container.add_child(label_id);
-        container.add_child(scroll_id);
+        container.add_child(list_id);
 
         container_id
     }
@@ -264,20 +257,13 @@ impl App {
                 .with_on_selection_change(|path| println!("Selected path: {}", path)),
         ));
 
-        // Wrap in scroll view
-        let scroll_id = widget_manager.add_widget(Box::new(ScrollView::new(WidgetId::default())));
-
-        // Add tree to scroll view
-        if let Some(scroll) = widget_manager.get_typed_mut::<ScrollView>(scroll_id) {
-            scroll.set_child(Some(tree_id));
-        }
-
-        // Add to container
+        // Add tree directly to container (ScrollView removed; tree-view's
+        // own scroll handling, when added, would replace the wrapper anyway).
         let container = widget_manager
             .get_typed_mut::<Container>(container_id)
             .unwrap();
         container.add_child(label_id);
-        container.add_child(scroll_id);
+        container.add_child(tree_id);
 
         container_id
     }

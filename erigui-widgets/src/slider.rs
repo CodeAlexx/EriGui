@@ -1,3 +1,4 @@
+use crate::tooltip::TooltipState;
 use erigui_core::{
     DrawContext, Event, EventResult, Key, LayoutConstraints, Modifiers, MouseButton, Point, Rect,
     Size, Theme, Widget, WidgetId, WidgetState,
@@ -21,6 +22,7 @@ pub struct Slider {
     thumb_size: i32,
     track_thickness: i32,
     on_value_changed: Option<Box<dyn FnMut(f32)>>,
+    tooltip: Option<TooltipState>,
 }
 
 impl Slider {
@@ -36,6 +38,7 @@ impl Slider {
             thumb_size: 20,
             track_thickness: 6,
             on_value_changed: None,
+            tooltip: None,
         }
     }
 
@@ -50,6 +53,25 @@ impl Slider {
     {
         self.on_value_changed = Some(Box::new(handler));
         self
+    }
+
+    /// Attach a hover tooltip. Mirrors Button's `with_tooltip` —
+    /// 500ms delay default, hides on press / mouse-leave.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(TooltipState::new(text));
+        self
+    }
+
+    /// Pre-configured `TooltipState` variant for callers that want
+    /// custom delay or position.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Read access for tests and introspection.
+    pub fn tooltip(&self) -> Option<&TooltipState> {
+        self.tooltip.as_ref()
     }
 
     pub fn value(&self) -> f32 {
@@ -229,11 +251,28 @@ impl Widget for Slider {
         // Draw thumb border
         context.set_color(theme.colors.border);
         context.draw_rect(thumb_rect);
+
+        // Tooltip overlays the slider bounds. Drawn after thumb so
+        // it appears on top of the chrome.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.visible || !self.state.enabled {
+            // Hidden / disabled slider must not show a stale tooltip.
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
             return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility off the same event stream.
+        // Done before the match so a press both dismisses the tooltip
+        // and starts the drag in the same event.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
         }
 
         match event {
@@ -341,6 +380,9 @@ impl Widget for Slider {
         if !enabled {
             self.is_dragging = false;
             self.is_hovering = false;
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
         }
     }
 

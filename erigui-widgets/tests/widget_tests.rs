@@ -1748,6 +1748,38 @@ fn checkbox_tooltip_shows_after_delay() {
 }
 
 #[test]
+fn slider_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0)
+        .with_tooltip_state(TooltipState::new("Volume").with_delay_ms(20));
+    s.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    s.handle_event(&move_event(Point::new(50, 15)), &theme);
+    assert!(!s.tooltip().unwrap().is_visible());
+
+    std::thread::sleep(Duration::from_millis(30));
+    s.handle_event(&move_event(Point::new(51, 15)), &theme);
+    assert!(s.tooltip().unwrap().is_visible());
+}
+
+#[test]
+fn slider_tooltip_hides_on_mouse_press() {
+    let theme = default_theme();
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0)
+        .with_tooltip_state(TooltipState::new("Volume").with_delay_ms(0));
+    s.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    s.handle_event(&move_event(Point::new(50, 15)), &theme);
+    assert!(s.tooltip().unwrap().is_visible());
+
+    s.handle_event(&left_press_event(Point::new(50, 15)), &theme);
+    assert!(
+        !s.tooltip().unwrap().is_visible(),
+        "press must dismiss the tooltip"
+    );
+}
+
+#[test]
 fn checkbox_tooltip_hides_on_mouse_press() {
     let theme = default_theme();
     let mut cb = Checkbox::new(test_id(), "Accept")

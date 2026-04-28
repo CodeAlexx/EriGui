@@ -26,6 +26,32 @@ pub enum TimeFormat {
     H12, // 12-hour format with AM/PM
 }
 
+// ----------------------------------------------------------------------------
+// Layout constants
+//
+// Single source of truth for popup geometry. Previously these literal values
+// were re-declared in `draw_calendar`, `handle_calendar_click`, the calendar
+// MouseMove hover-day update, `draw_time_picker`, and `handle_time_picker_click`,
+// so a tweak in one site would silently break hit-testing or hover detection
+// in another. Module-level consts make hover/click/draw layouts converge.
+// ----------------------------------------------------------------------------
+
+// Calendar popup
+const CALENDAR_PADDING: i32 = 10;
+const CALENDAR_HEADER_HEIGHT: i32 = 30;
+const CALENDAR_CELL_SIZE: i32 = 30;
+const CALENDAR_ARROW_SIZE: i32 = 16;
+const CALENDAR_WIDTH: i32 = 250;
+const CALENDAR_HEIGHT: i32 = 280;
+
+// Time picker popup
+const TIME_PICKER_PADDING: i32 = 20;
+const TIME_PICKER_INPUT_WIDTH: i32 = 60;
+const TIME_PICKER_INPUT_HEIGHT: i32 = 30;
+const TIME_PICKER_WIDTH: i32 = 200;
+const TIME_PICKER_AM_PM_WIDTH: i32 = 35;
+const TIME_PICKER_AM_PM_HEIGHT: i32 = 25;
+
 pub struct DateTimePicker {
     state: WidgetState,
     mode: DateTimePickerMode,
@@ -274,16 +300,12 @@ impl DateTimePicker {
         context.set_color(theme.colors.border);
         context.draw_rect(self.calendar_rect);
 
-        let padding = 10;
-        let header_height = 30;
-        let cell_size = 30;
-
         // Draw month/year header
         let header_rect = Rect::new(
             self.calendar_rect.x(),
             self.calendar_rect.y(),
             self.calendar_rect.width(),
-            header_height,
+            CALENDAR_HEADER_HEIGHT,
         );
 
         context.set_color(theme.colors.primary);
@@ -320,18 +342,17 @@ impl DateTimePicker {
         );
 
         // Draw navigation arrows
-        let arrow_size = 16;
         let prev_rect = Rect::new(
-            header_rect.x() + padding,
-            header_rect.center().y - arrow_size / 2,
-            arrow_size,
-            arrow_size,
+            header_rect.x() + CALENDAR_PADDING,
+            header_rect.center().y - CALENDAR_ARROW_SIZE / 2,
+            CALENDAR_ARROW_SIZE,
+            CALENDAR_ARROW_SIZE,
         );
         let next_rect = Rect::new(
-            header_rect.right() - padding - arrow_size,
-            header_rect.center().y - arrow_size / 2,
-            arrow_size,
-            arrow_size,
+            header_rect.right() - CALENDAR_PADDING - CALENDAR_ARROW_SIZE,
+            header_rect.center().y - CALENDAR_ARROW_SIZE / 2,
+            CALENDAR_ARROW_SIZE,
+            CALENDAR_ARROW_SIZE,
         );
 
         Icon::draw_back_arrow(context, prev_rect, theme.colors.background);
@@ -339,11 +360,15 @@ impl DateTimePicker {
 
         // Draw day headers
         let day_names = ["S", "M", "T", "W", "T", "F", "S"];
-        let calendar_y = header_rect.bottom() + padding;
+        let calendar_y = header_rect.bottom() + CALENDAR_PADDING;
 
         context.set_color(theme.colors.text_secondary);
         for (i, day) in day_names.iter().enumerate() {
-            let x = self.calendar_rect.x() + padding + i as i32 * cell_size + cell_size / 2 - 4;
+            let x = self.calendar_rect.x()
+                + CALENDAR_PADDING
+                + i as i32 * CALENDAR_CELL_SIZE
+                + CALENDAR_CELL_SIZE / 2
+                - 4;
             let y = calendar_y + 8;
             context.draw_text(day, Point::new(x, y), theme.typography.font_size_small);
         }
@@ -360,9 +385,9 @@ impl DateTimePicker {
             let row = grid_pos / 7;
             let col = grid_pos % 7;
 
-            let x = self.calendar_rect.x() + padding + col as i32 * cell_size;
-            let y = days_y + row as i32 * cell_size;
-            let day_rect = Rect::new(x, y, cell_size, cell_size);
+            let x = self.calendar_rect.x() + CALENDAR_PADDING + col as i32 * CALENDAR_CELL_SIZE;
+            let y = days_y + row as i32 * CALENDAR_CELL_SIZE;
+            let day_rect = Rect::new(x, y, CALENDAR_CELL_SIZE, CALENDAR_CELL_SIZE);
 
             // Check if this is the selected day
             let is_selected = selected_date.year() == self.viewing_year
@@ -374,10 +399,20 @@ impl DateTimePicker {
             // Draw background
             if is_selected {
                 context.set_color(theme.colors.primary);
-                context.fill_ellipse(day_rect.center(), cell_size / 2 - 2, cell_size / 2 - 2, 16);
+                context.fill_ellipse(
+                    day_rect.center(),
+                    CALENDAR_CELL_SIZE / 2 - 2,
+                    CALENDAR_CELL_SIZE / 2 - 2,
+                    16,
+                );
             } else if is_hovered {
                 context.set_color(theme.colors.primary_hover);
-                context.fill_ellipse(day_rect.center(), cell_size / 2 - 2, cell_size / 2 - 2, 16);
+                context.fill_ellipse(
+                    day_rect.center(),
+                    CALENDAR_CELL_SIZE / 2 - 2,
+                    CALENDAR_CELL_SIZE / 2 - 2,
+                    16,
+                );
             }
 
             // Draw day number
@@ -411,19 +446,15 @@ impl DateTimePicker {
         context.set_color(theme.colors.border);
         context.draw_rect(self.time_picker_rect);
 
-        let padding = 20;
-        let input_width = 60;
-        let input_height = 30;
-
         let center_x = self.time_picker_rect.center().x;
         let center_y = self.time_picker_rect.center().y;
 
         // Draw hour input
         let hour_rect = Rect::new(
-            center_x - input_width - padding / 2,
-            center_y - input_height / 2,
-            input_width,
-            input_height,
+            center_x - TIME_PICKER_INPUT_WIDTH - TIME_PICKER_PADDING / 2,
+            center_y - TIME_PICKER_INPUT_HEIGHT / 2,
+            TIME_PICKER_INPUT_WIDTH,
+            TIME_PICKER_INPUT_HEIGHT,
         );
 
         context.set_color(if self.editing_hour {
@@ -452,10 +483,10 @@ impl DateTimePicker {
 
         // Draw minute input
         let minute_rect = Rect::new(
-            center_x + padding / 2,
-            center_y - input_height / 2,
-            input_width,
-            input_height,
+            center_x + TIME_PICKER_PADDING / 2,
+            center_y - TIME_PICKER_INPUT_HEIGHT / 2,
+            TIME_PICKER_INPUT_WIDTH,
+            TIME_PICKER_INPUT_HEIGHT,
         );
 
         context.set_color(if self.editing_minute {
@@ -477,10 +508,20 @@ impl DateTimePicker {
 
         // Draw AM/PM selector for 12-hour format
         if self.time_format == TimeFormat::H12 {
-            let am_pm_y = center_y + input_height + padding;
+            let am_pm_y = center_y + TIME_PICKER_INPUT_HEIGHT + TIME_PICKER_PADDING;
 
-            let am_rect = Rect::new(center_x - 40, am_pm_y, 35, 25);
-            let pm_rect = Rect::new(center_x + 5, am_pm_y, 35, 25);
+            let am_rect = Rect::new(
+                center_x - TIME_PICKER_AM_PM_WIDTH - 5,
+                am_pm_y,
+                TIME_PICKER_AM_PM_WIDTH,
+                TIME_PICKER_AM_PM_HEIGHT,
+            );
+            let pm_rect = Rect::new(
+                center_x + 5,
+                am_pm_y,
+                TIME_PICKER_AM_PM_WIDTH,
+                TIME_PICKER_AM_PM_HEIGHT,
+            );
 
             // AM button
             context.set_color(if !self.am_pm_selected {
@@ -523,30 +564,25 @@ impl DateTimePicker {
     }
 
     fn handle_calendar_click(&mut self, position: Point) -> bool {
-        let padding = 10;
-        let header_height = 30;
-        let cell_size = 30;
-
         // Check navigation arrows
         let header_rect = Rect::new(
             self.calendar_rect.x(),
             self.calendar_rect.y(),
             self.calendar_rect.width(),
-            header_height,
+            CALENDAR_HEADER_HEIGHT,
         );
 
-        let arrow_size = 16;
         let prev_rect = Rect::new(
-            header_rect.x() + padding,
-            header_rect.center().y - arrow_size / 2,
-            arrow_size,
-            arrow_size,
+            header_rect.x() + CALENDAR_PADDING,
+            header_rect.center().y - CALENDAR_ARROW_SIZE / 2,
+            CALENDAR_ARROW_SIZE,
+            CALENDAR_ARROW_SIZE,
         );
         let next_rect = Rect::new(
-            header_rect.right() - padding - arrow_size,
-            header_rect.center().y - arrow_size / 2,
-            arrow_size,
-            arrow_size,
+            header_rect.right() - CALENDAR_PADDING - CALENDAR_ARROW_SIZE,
+            header_rect.center().y - CALENDAR_ARROW_SIZE / 2,
+            CALENDAR_ARROW_SIZE,
+            CALENDAR_ARROW_SIZE,
         );
 
         if prev_rect.contains(position) {
@@ -572,7 +608,7 @@ impl DateTimePicker {
         }
 
         // Check day clicks
-        let calendar_y = header_rect.bottom() + padding;
+        let calendar_y = header_rect.bottom() + CALENDAR_PADDING;
         let days_y = calendar_y + 20;
         let first_day = Self::first_day_of_week(self.viewing_year, self.viewing_month);
         let days_in_month = Self::days_in_month(self.viewing_year, self.viewing_month);
@@ -582,9 +618,9 @@ impl DateTimePicker {
             let row = grid_pos / 7;
             let col = grid_pos % 7;
 
-            let x = self.calendar_rect.x() + padding + col as i32 * cell_size;
-            let y = days_y + row as i32 * cell_size;
-            let day_rect = Rect::new(x, y, cell_size, cell_size);
+            let x = self.calendar_rect.x() + CALENDAR_PADDING + col as i32 * CALENDAR_CELL_SIZE;
+            let y = days_y + row as i32 * CALENDAR_CELL_SIZE;
+            let day_rect = Rect::new(x, y, CALENDAR_CELL_SIZE, CALENDAR_CELL_SIZE);
 
             if day_rect.contains(position) {
                 // Update selected date with validation
@@ -610,19 +646,15 @@ impl DateTimePicker {
     }
 
     fn handle_time_picker_click(&mut self, position: Point) -> bool {
-        let padding = 20;
-        let input_width = 60;
-        let input_height = 30;
-
         let center_x = self.time_picker_rect.center().x;
         let center_y = self.time_picker_rect.center().y;
 
         // Check hour input
         let hour_rect = Rect::new(
-            center_x - input_width - padding / 2,
-            center_y - input_height / 2,
-            input_width,
-            input_height,
+            center_x - TIME_PICKER_INPUT_WIDTH - TIME_PICKER_PADDING / 2,
+            center_y - TIME_PICKER_INPUT_HEIGHT / 2,
+            TIME_PICKER_INPUT_WIDTH,
+            TIME_PICKER_INPUT_HEIGHT,
         );
 
         if hour_rect.contains(position) {
@@ -633,10 +665,10 @@ impl DateTimePicker {
 
         // Check minute input
         let minute_rect = Rect::new(
-            center_x + padding / 2,
-            center_y - input_height / 2,
-            input_width,
-            input_height,
+            center_x + TIME_PICKER_PADDING / 2,
+            center_y - TIME_PICKER_INPUT_HEIGHT / 2,
+            TIME_PICKER_INPUT_WIDTH,
+            TIME_PICKER_INPUT_HEIGHT,
         );
 
         if minute_rect.contains(position) {
@@ -647,10 +679,20 @@ impl DateTimePicker {
 
         // Check AM/PM buttons for 12-hour format
         if self.time_format == TimeFormat::H12 {
-            let am_pm_y = center_y + input_height + padding;
+            let am_pm_y = center_y + TIME_PICKER_INPUT_HEIGHT + TIME_PICKER_PADDING;
 
-            let am_rect = Rect::new(center_x - 40, am_pm_y, 35, 25);
-            let pm_rect = Rect::new(center_x + 5, am_pm_y, 35, 25);
+            let am_rect = Rect::new(
+                center_x - TIME_PICKER_AM_PM_WIDTH - 5,
+                am_pm_y,
+                TIME_PICKER_AM_PM_WIDTH,
+                TIME_PICKER_AM_PM_HEIGHT,
+            );
+            let pm_rect = Rect::new(
+                center_x + 5,
+                am_pm_y,
+                TIME_PICKER_AM_PM_WIDTH,
+                TIME_PICKER_AM_PM_HEIGHT,
+            );
 
             if am_rect.contains(position) {
                 self.am_pm_selected = false;
@@ -743,13 +785,13 @@ impl Widget for DateTimePicker {
         );
 
         // Calculate popup positions
-        let calendar_width = 250;
-        let calendar_height = 280;
+        self.calendar_rect = Rect::new(
+            rect.x(),
+            rect.bottom() + 2,
+            CALENDAR_WIDTH,
+            CALENDAR_HEIGHT,
+        );
 
-        self.calendar_rect =
-            Rect::new(rect.x(), rect.bottom() + 2, calendar_width, calendar_height);
-
-        let time_picker_width = 200;
         let time_picker_height = if self.time_format == TimeFormat::H12 {
             120
         } else {
@@ -758,16 +800,16 @@ impl Widget for DateTimePicker {
 
         self.time_picker_rect = if self.mode == DateTimePickerMode::DateTime {
             Rect::new(
-                rect.x() + calendar_width + 10,
+                rect.x() + CALENDAR_WIDTH + 10,
                 rect.bottom() + 2,
-                time_picker_width,
+                TIME_PICKER_WIDTH,
                 time_picker_height,
             )
         } else {
             Rect::new(
                 rect.x(),
                 rect.bottom() + 2,
-                time_picker_width,
+                TIME_PICKER_WIDTH,
                 time_picker_height,
             )
         };
@@ -852,11 +894,11 @@ impl Widget for DateTimePicker {
             }
             Event::MouseMove(move_event) => {
                 if self.show_calendar && self.calendar_rect.contains(move_event.position) {
-                    // Update hovered day
-                    let padding = 10;
-                    let header_height = 30;
-                    let cell_size = 30;
-                    let calendar_y = self.calendar_rect.y() + header_height + padding;
+                    // Update hovered day. Geometry must mirror draw_calendar
+                    // and handle_calendar_click exactly — the lifted module
+                    // consts ensure all three see the same layout.
+                    let calendar_y =
+                        self.calendar_rect.y() + CALENDAR_HEADER_HEIGHT + CALENDAR_PADDING;
                     let days_y = calendar_y + 20;
                     let first_day = Self::first_day_of_week(self.viewing_year, self.viewing_month);
                     let days_in_month = Self::days_in_month(self.viewing_year, self.viewing_month);
@@ -868,9 +910,11 @@ impl Widget for DateTimePicker {
                         let row = grid_pos / 7;
                         let col = grid_pos % 7;
 
-                        let x = self.calendar_rect.x() + padding + col as i32 * cell_size;
-                        let y = days_y + row as i32 * cell_size;
-                        let day_rect = Rect::new(x, y, cell_size, cell_size);
+                        let x = self.calendar_rect.x()
+                            + CALENDAR_PADDING
+                            + col as i32 * CALENDAR_CELL_SIZE;
+                        let y = days_y + row as i32 * CALENDAR_CELL_SIZE;
+                        let day_rect = Rect::new(x, y, CALENDAR_CELL_SIZE, CALENDAR_CELL_SIZE);
 
                         if day_rect.contains(move_event.position) {
                             self.hovered_day = Some(day);

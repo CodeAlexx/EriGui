@@ -8,11 +8,12 @@
 //! regression net.
 
 use erigui_core::{
-    Color, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConstraints, Modifiers,
-    MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point, Rect, ResizeEvent,
-    Size, TextInputEvent, Theme, Widget, WidgetId,
+    Color, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConfig, LayoutConstraints,
+    LayoutMode, Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point,
+    Rect, ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
 };
-use erigui_widgets::{Label, TextAlign};
+use erigui_widgets::{Container, Label, TextAlign};
+use slotmap::SlotMap;
 
 // Helper-functions copied verbatim from widget_tests.rs so this file is
 // self-contained. Keep them in sync if widget_tests.rs ever changes them.
@@ -194,4 +195,214 @@ fn label_ignores_all_events() {
             ev
         );
     }
+}
+
+// ============================================================================
+// Container
+// ============================================================================
+//
+// Container is a layout primitive. The actual child-positioning logic lives
+// in a private layout_children method that takes a `widgets` callback that
+// the public API doesn't expose to outside callers, so these tests focus
+// on the parts that ARE observable: the children list, the LayoutConfig,
+// the Widget-trait surface, and "events are ignored / doesn't panic."
+//
+// Mint distinct child WidgetIds via a SlotMap; WidgetId is just
+// `slotmap::DefaultKey`, so this is the same mechanism erigui-widgets uses
+// internally. The map MUST persist across calls -- a fresh SlotMap always
+// returns the same first key.
+fn id_factory() -> impl FnMut() -> WidgetId {
+    let mut sm: SlotMap<WidgetId, ()> = SlotMap::new();
+    move || sm.insert(())
+}
+
+#[test]
+fn container_creation_defaults() {
+    let c = Container::new(test_id());
+    assert_eq!(c.children().len(), 0, "new Container should have no children");
+    assert!(c.is_visible());
+    assert!(c.is_enabled());
+    assert!(!c.can_focus(), "Container does not participate in focus");
+    assert_eq!(c.get_layout_info().mode, LayoutMode::None);
+}
+
+#[test]
+fn container_with_layout_builder_round_trips_mode() {
+    let cfg = LayoutConfig {
+        mode: LayoutMode::Vertical,
+        spacing: 8,
+        ..LayoutConfig::default()
+    };
+    let c = Container::new(test_id()).with_layout(cfg);
+    let info = c.get_layout_info();
+    assert_eq!(info.mode, LayoutMode::Vertical);
+    assert_eq!(info.spacing, 8);
+}
+
+#[test]
+fn container_set_layout_mode_round_trips() {
+    let mut c = Container::new(test_id());
+    c.set_layout_mode(LayoutMode::Horizontal);
+    assert_eq!(c.get_layout_info().mode, LayoutMode::Horizontal);
+    c.set_layout_mode(LayoutMode::Grid { columns: 3 });
+    assert_eq!(c.get_layout_info().mode, LayoutMode::Grid { columns: 3 });
+    c.set_layout_mode(LayoutMode::None);
+    assert_eq!(c.get_layout_info().mode, LayoutMode::None);
+}
+
+#[test]
+fn container_add_child_appends() {
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    let id_a = next();
+    let id_b = next();
+    c.add_child(id_a);
+    c.add_child(id_b);
+    assert_eq!(c.children().len(), 2);
+    assert_eq!(c.children()[0], id_a);
+    assert_eq!(c.children()[1], id_b);
+}
+
+#[test]
+fn container_add_flex_child_appends() {
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    let id_a = next();
+    let id_b = next();
+    c.add_flex_child(id_a, 1.0);
+    c.add_flex_child(id_b, 2.0);
+    assert_eq!(c.children().len(), 2);
+    assert_eq!(c.children()[0], id_a);
+    assert_eq!(c.children()[1], id_b);
+}
+
+#[test]
+fn container_remove_child_returns_true_when_present() {
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    let id_a = next();
+    let id_b = next();
+    c.add_child(id_a);
+    c.add_child(id_b);
+    assert!(c.remove_child(id_a));
+    assert_eq!(c.children().len(), 1);
+    assert_eq!(c.children()[0], id_b);
+}
+
+#[test]
+fn container_remove_child_returns_false_when_absent() {
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    let id_a = next();
+    let id_other = next();
+    c.add_child(id_a);
+    assert!(!c.remove_child(id_other), "removing absent child should return false");
+    assert_eq!(c.children().len(), 1);
+}
+
+#[test]
+fn container_clear_children_empties_list() {
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    c.add_child(next());
+    c.add_child(next());
+    c.add_flex_child(next(), 1.0);
+    assert_eq!(c.children().len(), 3);
+    c.clear_children();
+    assert_eq!(c.children().len(), 0);
+}
+
+#[test]
+fn container_layout_sets_bounds() {
+    let mut c = Container::new(test_id());
+    let theme = default_theme();
+    c.layout(Rect::new(2, 4, 200, 300), &theme);
+    let b = c.bounds();
+    assert_eq!(b.x(), 2);
+    assert_eq!(b.y(), 4);
+    assert_eq!(b.width(), 200);
+    assert_eq!(b.height(), 300);
+}
+
+#[test]
+fn container_measure_returns_nonnegative_size_in_each_mode() {
+    let theme = default_theme();
+    let constraints = LayoutConstraints::bounded(400, 300);
+
+    for mode in [
+        LayoutMode::None,
+        LayoutMode::Vertical,
+        LayoutMode::Horizontal,
+        LayoutMode::Grid { columns: 2 },
+    ] {
+        let mut c = Container::new(test_id());
+        c.set_layout_mode(mode);
+        let size = c.measure(&constraints, &theme);
+        assert!(size.width >= 0, "{:?} produced negative width", mode);
+        assert!(size.height >= 0, "{:?} produced negative height", mode);
+    }
+}
+
+#[test]
+fn container_visibility_and_enabled_round_trip() {
+    let mut c = Container::new(test_id());
+    c.set_visible(false);
+    assert!(!c.is_visible());
+    c.set_enabled(false);
+    assert!(!c.is_enabled());
+}
+
+#[test]
+fn container_ignores_all_events() {
+    let theme = default_theme();
+    let mut c = Container::new(test_id());
+    c.layout(Rect::new(0, 0, 100, 100), &theme);
+
+    let events = [
+        Event::MouseMove(MouseMoveEvent {
+            position: Point::new(10, 10),
+            delta: Point::new(0, 0),
+            modifiers: Modifiers::empty(),
+        }),
+        Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(10, 10),
+            pressed: true,
+            modifiers: Modifiers::empty(),
+        }),
+        Event::KeyPress(KeyPressEvent {
+            key: Key::Space,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        Event::Update,
+    ];
+    for ev in &events {
+        assert_eq!(c.handle_event(ev, &theme), EventResult::Ignored);
+    }
+}
+
+#[test]
+fn container_set_focused_is_a_no_op() {
+    // can_focus() returns false; set_focused should not flip is_focused.
+    let mut c = Container::new(test_id());
+    c.set_focused(true);
+    assert!(!c.is_focused());
+}
+
+#[test]
+fn container_add_remove_does_not_panic_when_layout_mode_is_grid() {
+    // Smoke: switch to Grid mode (which has a different measure path) and
+    // exercise child mutations + measure end-to-end.
+    let theme = default_theme();
+    let mut next = id_factory();
+    let mut c = Container::new(test_id());
+    c.set_layout_mode(LayoutMode::Grid { columns: 3 });
+    for _ in 0..7 {
+        c.add_child(next());
+    }
+    c.layout(Rect::new(0, 0, 300, 300), &theme);
+    let _ = c.measure(&LayoutConstraints::bounded(300, 300), &theme);
+    c.clear_children();
+    assert_eq!(c.children().len(), 0);
 }

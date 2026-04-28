@@ -1733,6 +1733,38 @@ fn toolbar_button_with_tooltip_shows_after_delay() {
 }
 
 #[test]
+fn checkbox_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut cb = Checkbox::new(test_id(), "Accept")
+        .with_tooltip_state(TooltipState::new("Accept terms").with_delay_ms(20));
+    cb.layout(Rect::new(0, 0, 200, 24), &theme);
+
+    cb.handle_event(&move_event(Point::new(10, 12)), &theme);
+    assert!(!cb.tooltip().unwrap().is_visible());
+
+    std::thread::sleep(Duration::from_millis(30));
+    cb.handle_event(&move_event(Point::new(11, 12)), &theme);
+    assert!(cb.tooltip().unwrap().is_visible());
+}
+
+#[test]
+fn checkbox_tooltip_hides_on_mouse_press() {
+    let theme = default_theme();
+    let mut cb = Checkbox::new(test_id(), "Accept")
+        .with_tooltip_state(TooltipState::new("Accept terms").with_delay_ms(0));
+    cb.layout(Rect::new(0, 0, 200, 24), &theme);
+
+    cb.handle_event(&move_event(Point::new(10, 12)), &theme);
+    assert!(cb.tooltip().unwrap().is_visible());
+
+    cb.handle_event(&left_press_event(Point::new(10, 12)), &theme);
+    assert!(
+        !cb.tooltip().unwrap().is_visible(),
+        "press must dismiss the tooltip"
+    );
+}
+
+#[test]
 fn toolbar_button_tooltip_hides_on_mouse_leave() {
     let theme = default_theme();
     let mut tb = Toolbar::new(test_id())

@@ -1,3 +1,4 @@
+use crate::tooltip::TooltipState;
 use erigui_core::{
     DrawContext, Event, EventResult, LayoutConstraints, MouseButton, Point, Rect, Size, Theme,
     Widget, WidgetId, WidgetState,
@@ -11,6 +12,7 @@ pub struct Checkbox {
     is_hovering: bool,
     box_size: i32,
     on_toggle: Option<Box<dyn FnMut(bool)>>,
+    tooltip: Option<TooltipState>,
 }
 
 impl Checkbox {
@@ -22,6 +24,7 @@ impl Checkbox {
             is_hovering: false,
             box_size: 16,
             on_toggle: None,
+            tooltip: None,
         }
     }
 
@@ -36,6 +39,26 @@ impl Checkbox {
     {
         self.on_toggle = Some(Box::new(handler));
         self
+    }
+
+    /// Attach a hover tooltip to this checkbox. Mirrors Button's
+    /// `with_tooltip` — defaults to a 500ms delay, hides on press
+    /// or mouse-leave.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(TooltipState::new(text));
+        self
+    }
+
+    /// Variant of `with_tooltip` that takes a pre-configured
+    /// `TooltipState` so callers can override delay or position.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Read access for tests and introspection.
+    pub fn tooltip(&self) -> Option<&TooltipState> {
+        self.tooltip.as_ref()
     }
 
     pub fn is_checked(&self) -> bool {
@@ -163,11 +186,28 @@ impl Widget for Checkbox {
             Point::new(text_x, text_y),
             theme.typography.font_size_base,
         );
+
+        // Tooltip overlays the checkbox bounds. Drawn last so the
+        // checkmark / text aren't on top of the tooltip.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.visible || !self.state.enabled {
+            // Hidden / disabled checkbox should not show a stale tooltip.
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
             return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility off the same event stream.
+        // Done before the match so a press both dismisses the tooltip
+        // and fires the toggle in the same event.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
         }
 
         match event {

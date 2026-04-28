@@ -1,23 +1,28 @@
-//! Integration tests for TreeView (and -- in a follow-up commit -- DockPanel).
+//! Integration tests for TreeView and DockPanel.
 //!
-//! TreeView had zero integration tests before this file. Same bar as
-//! the wave-3 sibling files (simple_widgets_tests.rs,
-//! modal_widgets_tests.rs): "no widget has zero tests anymore" -- not
-//! exhaustive coverage. Where the public API doesn't expose enough
-//! state for a real round-trip assertion, the test degenerates to
-//! "construction + call doesn't panic," which is still a regression
-//! net.
+//! Both widgets had thin coverage before this file: TreeView had zero
+//! integration tests, and DockPanel only had two focus-discipline tests
+//! that landed in wave-2 commit `2242794` (rectifying the can_focus()
+//! contract after the Mojo port). Same bar as the wave-3 sibling files:
+//! "no widget has zero tests anymore" -- not exhaustive coverage. Where
+//! the public API doesn't expose enough state for a real round-trip
+//! assertion, the test degenerates to "construction + call doesn't
+//! panic," which is still a regression net.
 //!
 //! TreeView is a hierarchical list with an explicit
 //! `root_nodes: Vec<TreeNode>` field that's `pub`, so most state is
-//! observable directly.
+//! observable directly. DockPanel hides its `DockNode` tree entirely,
+//! so coverage there is mostly behavioral (callbacks fire, layout-event
+//! flow doesn't panic).
 
 use erigui_core::{
     Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConstraints, Modifiers, MouseButton,
     MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point, Rect, TextInputEvent, Theme, Widget,
     WidgetId,
 };
-use erigui_widgets::{TreeNode, TreeView};
+use erigui_widgets::{
+    DockPanel, DockPosition, DockablePanel, Label, TreeNode, TreeView,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -581,4 +586,428 @@ fn tree_view_set_bounds_round_trips() {
     tv.set_bounds(Rect::new(5, 5, 150, 80));
     assert_eq!(tv.bounds().x(), 5);
     assert_eq!(tv.bounds().width(), 150);
+}
+
+// ============================================================================
+// DockPanel
+// ============================================================================
+//
+// DockPanel hides its DockNode tree and panels HashMap behind opaque
+// methods. Externally we can:
+//   - construct, layout, draw (draw not tested here -- CPU-only rule)
+//   - add_panel / remove_panel and observe via callbacks
+//   - splitter dragging via simulated MouseButton+MouseMove events
+//   - focus discipline (wave-2 commit 2242794 made can_focus real)
+//
+// We can NOT directly observe:
+//   - the dock-tree shape
+//   - the panel-id -> position mapping
+//   - splitter ratios (only that they survive a drag without panicking)
+//   - active tab index
+// So most tests below are "did the call complete without panic and
+// did the callback fire?" rather than deep state assertions.
+
+fn boxed_label(text: &str) -> Box<dyn Widget> {
+    Box::new(Label::new(test_id(), text))
+}
+
+#[test]
+fn dock_panel_creation_defaults() {
+    let dp = DockPanel::new(test_id());
+    assert!(dp.is_visible());
+    assert!(dp.is_enabled());
+    assert!(!dp.is_focused());
+    // wave-2 commit 2242794 made this real: enabled+visible -> can_focus.
+    assert!(dp.can_focus(), "default DockPanel is enabled+visible -> focusable");
+}
+
+#[test]
+fn dock_panel_layout_sets_bounds() {
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.layout(Rect::new(10, 20, 800, 600), &theme);
+    let b = dp.bounds();
+    assert_eq!(b.x(), 10);
+    assert_eq!(b.y(), 20);
+    assert_eq!(b.width(), 800);
+    assert_eq!(b.height(), 600);
+}
+
+#[test]
+fn dock_panel_measure_returns_bounded_size() {
+    let theme = default_theme();
+    let dp = DockPanel::new(test_id());
+    let s = dp.measure(&LayoutConstraints::bounded(640, 480), &theme);
+    assert_eq!(s.width, 640);
+    assert_eq!(s.height, 480);
+    // Unbounded: defaults to 800x600.
+    let s = dp.measure(&LayoutConstraints::UNBOUNDED, &theme);
+    assert_eq!(s.width, 800);
+    assert_eq!(s.height, 600);
+}
+
+#[test]
+fn dock_panel_visibility_and_enabled_round_trip() {
+    let mut dp = DockPanel::new(test_id());
+    dp.set_visible(false);
+    assert!(!dp.is_visible());
+    dp.set_enabled(false);
+    assert!(!dp.is_enabled());
+}
+
+#[test]
+fn dock_panel_set_focused_round_trips() {
+    // Wave-2 (commit 2242794) rectified focus discipline for this widget.
+    // The widget_tests.rs file has equivalent tests; mirror them here so
+    // a refactor of THIS file's coverage is self-contained.
+    let mut dp = DockPanel::new(test_id());
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", boxed_label("a")),
+        DockPosition::Center,
+    );
+    assert!(!dp.is_focused());
+    dp.set_focused(true);
+    assert!(dp.is_focused());
+    dp.set_focused(false);
+    assert!(!dp.is_focused());
+}
+
+#[test]
+fn dock_panel_can_focus_respects_disabled_and_invisible() {
+    let mut dp = DockPanel::new(test_id());
+    dp.set_enabled(false);
+    assert!(!dp.can_focus(), "disabled DockPanel must not advertise focus");
+    dp.set_enabled(true);
+    dp.set_visible(false);
+    assert!(!dp.can_focus(), "invisible DockPanel must not advertise focus");
+}
+
+#[test]
+fn dock_panel_disabled_or_invisible_ignores_events() {
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", boxed_label("a")),
+        DockPosition::Center,
+    );
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    let click = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(50, 50),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    dp.set_visible(false);
+    assert_eq!(dp.handle_event(&click, &theme), EventResult::Ignored);
+    dp.set_visible(true);
+    dp.set_enabled(false);
+    assert_eq!(dp.handle_event(&click, &theme), EventResult::Ignored);
+}
+
+#[test]
+fn dock_panel_empty_handles_events_without_panic() {
+    // No panels -> root_node is Empty -> handle_node_event returns Ignored.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.layout(Rect::new(0, 0, 400, 300), &theme);
+
+    let events = [
+        Event::MouseMove(MouseMoveEvent {
+            position: Point::new(10, 10),
+            delta: Point::new(0, 0),
+            modifiers: Modifiers::empty(),
+        }),
+        Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(10, 10),
+            pressed: true,
+            modifiers: Modifiers::empty(),
+        }),
+        Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(10, 10),
+            pressed: false,
+            modifiers: Modifiers::empty(),
+        }),
+        Event::KeyPress(KeyPressEvent {
+            key: Key::Tab,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        Event::Update,
+    ];
+    for ev in &events {
+        // No assertion on Consumed vs Ignored -- the floating-window pass
+        // and tab-control delegation choose. The point is "no panic."
+        let _ = dp.handle_event(ev, &theme);
+    }
+}
+
+#[test]
+fn dock_panel_add_panel_fires_layout_change_callback() {
+    let count: Rc<RefCell<i32>> = Rc::new(RefCell::new(0));
+    let cap = count.clone();
+
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id())
+        .with_on_layout_change(move || {
+            *cap.borrow_mut() += 1;
+        });
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", boxed_label("a")),
+        DockPosition::Center,
+    );
+    assert_eq!(*count.borrow(), 1);
+
+    dp.add_panel(
+        DockablePanel::new("p1", "Panel 1", boxed_label("b")),
+        DockPosition::Right,
+    );
+    assert_eq!(*count.borrow(), 2);
+
+    dp.add_panel(
+        DockablePanel::new("p2", "Panel 2", boxed_label("c")),
+        DockPosition::Floating,
+    );
+    assert_eq!(*count.borrow(), 3, "even Floating placement fires layout change");
+}
+
+#[test]
+fn dock_panel_remove_panel_returns_panel_and_fires_callback() {
+    let count: Rc<RefCell<i32>> = Rc::new(RefCell::new(0));
+    let cap = count.clone();
+
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id())
+        .with_on_layout_change(move || {
+            *cap.borrow_mut() += 1;
+        });
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", boxed_label("a")),
+        DockPosition::Center,
+    );
+    let added_calls = *count.borrow(); // 1
+    let removed = dp.remove_panel("p0");
+    assert!(removed.is_some());
+    assert_eq!(removed.unwrap().id, "p0");
+    assert_eq!(*count.borrow(), added_calls + 1, "remove fires layout-change too");
+
+    // Removing an absent id returns None and does NOT fire the callback,
+    // because the function exits early at panels.remove(id)?.
+    let before = *count.borrow();
+    let res = dp.remove_panel("does-not-exist");
+    assert!(res.is_none());
+    assert_eq!(*count.borrow(), before, "absent id must not fire callback");
+}
+
+#[test]
+fn dock_panel_add_in_each_position_does_not_panic() {
+    // Exercise all five docked positions plus Floating. Each branch in
+    // add_to_dock_tree mutates root_node in a different way; verify they
+    // all complete and a follow-up layout works.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+
+    let positions = [
+        ("center", DockPosition::Center),
+        ("right", DockPosition::Right),
+        ("left", DockPosition::Left),
+        ("top", DockPosition::Top),
+        ("bottom", DockPosition::Bottom),
+        ("floating", DockPosition::Floating),
+    ];
+    for (id, pos) in positions {
+        dp.add_panel(DockablePanel::new(id, id, boxed_label(id)), pos);
+    }
+    // Layout again with all six panels in the tree -- the layout pass
+    // recurses through every Split branch.
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+}
+
+#[test]
+fn dock_panel_splitter_drag_does_not_panic() {
+    // Add a left dock and a center dock to create a Horizontal splitter.
+    // Then click on the splitter and drag. The path-based ratio update
+    // (replacing the deleted *mut DockNode -- see wave-2 commit 2242794)
+    // must complete without panic and without UB.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.add_panel(
+        DockablePanel::new("center", "Center", boxed_label("c")),
+        DockPosition::Center,
+    );
+    dp.add_panel(
+        DockablePanel::new("left", "Left", boxed_label("l")),
+        DockPosition::Left,
+    );
+    // Layout to populate splitter_rects. Bounds chosen large enough that
+    // the splitter rect at ratio=0.3 is at x ~= 300.
+    let bounds = Rect::new(0, 0, 1000, 600);
+    dp.layout(bounds, &theme);
+
+    // The horizontal splitter (Left vs the rest) is at split_x ~= 300,
+    // splitter_size=4 so its rect is roughly Rect(298, 0, 4, 600).
+    // Click on (300, 300) which is well within the splitter.
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(300, 300),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let res = dp.handle_event(&press, &theme);
+    assert_eq!(res, EventResult::Consumed, "splitter press should be consumed");
+
+    // Drag to a new position. The ratio update must not panic.
+    let drag = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(500, 300),
+        delta: Point::new(200, 0),
+        modifiers: Modifiers::empty(),
+    });
+    let res = dp.handle_event(&drag, &theme);
+    assert_eq!(res, EventResult::Consumed, "drag while splitter active is consumed");
+
+    // Release.
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(500, 300),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = dp.handle_event(&release, &theme);
+    // After release, a follow-up MouseMove must NOT keep dragging the
+    // splitter. The splitter is no longer active.
+    let stray_move = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(700, 300),
+        delta: Point::new(200, 0),
+        modifiers: Modifiers::empty(),
+    });
+    // Whatever the tab/content handlers return, we just want no panic.
+    let _ = dp.handle_event(&stray_move, &theme);
+
+    // Re-layout after the drag -- this exercises the ratio path. Must
+    // not panic, even with the new ratio in effect.
+    dp.layout(bounds, &theme);
+}
+
+#[test]
+fn dock_panel_floating_window_titlebar_drag_does_not_panic() {
+    // A floating window starts at bounds (100,100,400,300) per the impl.
+    // Click in the title bar (top 25 px) and drag.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.add_panel(
+        DockablePanel::new("f", "Floater", boxed_label("x")),
+        DockPosition::Floating,
+    );
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+
+    // Title bar: Rect(100, 100, 400, 25). Click center of titlebar at
+    // (300, 110).
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(300, 110),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let res = dp.handle_event(&press, &theme);
+    assert_eq!(
+        res,
+        EventResult::Consumed,
+        "floating-window titlebar press is consumed"
+    );
+
+    // Drag the floating window. The handler updates window.bounds.
+    let drag = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(400, 200),
+        delta: Point::new(100, 90),
+        modifiers: Modifiers::empty(),
+    });
+    let res = dp.handle_event(&drag, &theme);
+    assert_eq!(res, EventResult::Consumed, "drag while floating-window dragging");
+
+    // Release.
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(400, 200),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = dp.handle_event(&release, &theme);
+
+    // Follow-up layout must still work -- no UB from the drag, no
+    // dangling pointers (the wave-2 cleanup deleted DropTarget's *mut).
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+}
+
+#[test]
+fn dockable_panel_builders_round_trip() {
+    let p = DockablePanel::new("id", "Title", boxed_label("body"));
+    assert_eq!(p.id, "id");
+    assert_eq!(p.title, "Title");
+    assert!(p.can_close, "default can_close is true");
+    assert!(p.can_float, "default can_float is true");
+    assert_eq!(p.icon, None);
+
+    let p2 = DockablePanel::new("a", "A", boxed_label("body"))
+        .with_icon("file")
+        .with_can_close(false)
+        .with_can_float(false);
+    assert_eq!(p2.icon.as_deref(), Some("file"));
+    assert!(!p2.can_close);
+    assert!(!p2.can_float);
+}
+
+#[test]
+fn dock_position_equality() {
+    // DockPosition derives PartialEq; locking variants in.
+    assert_eq!(DockPosition::Left, DockPosition::Left);
+    assert_ne!(DockPosition::Left, DockPosition::Right);
+    assert_ne!(DockPosition::Top, DockPosition::Bottom);
+    assert_ne!(DockPosition::Center, DockPosition::Floating);
+}
+
+#[test]
+fn dock_panel_remove_collapses_split_when_one_side_emptied() {
+    // Add Left + Center to get a horizontal split. Remove the Left
+    // panel. The dock tree should collapse the split into the surviving
+    // Center subtree. We can't read the tree directly, but a follow-up
+    // layout + add must keep working without panic, and the layout-change
+    // callback must fire on the remove.
+    let count: Rc<RefCell<i32>> = Rc::new(RefCell::new(0));
+    let cap = count.clone();
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id())
+        .with_on_layout_change(move || {
+            *cap.borrow_mut() += 1;
+        });
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    dp.add_panel(
+        DockablePanel::new("center", "Center", boxed_label("c")),
+        DockPosition::Center,
+    );
+    dp.add_panel(
+        DockablePanel::new("left", "Left", boxed_label("l")),
+        DockPosition::Left,
+    );
+    let before = *count.borrow();
+    let removed = dp.remove_panel("left");
+    assert!(removed.is_some());
+    assert_eq!(*count.borrow(), before + 1);
+
+    // Re-layout collapses cleanly.
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    // Add another panel after the collapse to verify the tree is sane.
+    dp.add_panel(
+        DockablePanel::new("right", "Right", boxed_label("r")),
+        DockPosition::Right,
+    );
+    dp.layout(Rect::new(0, 0, 800, 600), &theme);
 }

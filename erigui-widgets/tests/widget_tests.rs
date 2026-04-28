@@ -1115,3 +1115,175 @@ fn tab_control_click_focuses() {
     tc.handle_event(&click, &theme);
     assert!(tc.is_focused(), "click on a tab should focus the TabControl");
 }
+
+// ============================================================================
+// Accordion focus + keyboard nav (Mojo-port cleanup, 2026-04-28)
+// Previously: can_focus() returned false despite real focus state — focus
+// was unreachable, no keyboard nav, hosts couldn't direct focus to the
+// Accordion.
+// ============================================================================
+
+use erigui_widgets::{Accordion, AccordionPanel, Label};
+
+fn no_mod_key(k: Key) -> Event {
+    Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    })
+}
+
+fn accordion_with(n: usize) -> Accordion {
+    let mut a = Accordion::new(test_id());
+    for i in 0..n {
+        let content: Box<dyn Widget> =
+            Box::new(Label::new(test_id(), format!("body_{i}")));
+        a.add_panel(AccordionPanel::new(format!("panel_{i}"), content));
+    }
+    a
+}
+
+#[test]
+fn accordion_focus_round_trips() {
+    let theme = default_theme();
+    let mut a = accordion_with(3);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    assert!(a.can_focus(), "enabled+visible Accordion should be focusable");
+    assert!(!a.is_focused(), "starts unfocused");
+    a.set_focused(true);
+    assert!(a.is_focused());
+    a.set_focused(false);
+    assert!(!a.is_focused());
+}
+
+#[test]
+fn accordion_down_advances_focused_panel_when_focused() {
+    let theme = default_theme();
+    let mut a = accordion_with(3);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    a.set_focused(true);
+    assert_eq!(a.focused_panel(), None, "starts with no panel cursor");
+
+    let r = a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(
+        a.focused_panel(),
+        Some(0),
+        "first Down picks first enabled panel"
+    );
+
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(a.focused_panel(), Some(1));
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(a.focused_panel(), Some(2));
+    // Wraps to 0
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(a.focused_panel(), Some(0));
+}
+
+#[test]
+fn accordion_up_moves_focused_panel_back_when_focused() {
+    let theme = default_theme();
+    let mut a = accordion_with(3);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    a.set_focused(true);
+    // Walk forward to panel 2 then go back.
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(a.focused_panel(), Some(2));
+
+    a.handle_event(&no_mod_key(Key::Up), &theme);
+    assert_eq!(a.focused_panel(), Some(1));
+    a.handle_event(&no_mod_key(Key::Up), &theme);
+    assert_eq!(a.focused_panel(), Some(0));
+    // Wraps to last
+    a.handle_event(&no_mod_key(Key::Up), &theme);
+    assert_eq!(a.focused_panel(), Some(2));
+}
+
+#[test]
+fn accordion_enter_toggles_focused_panel() {
+    let theme = default_theme();
+    let mut a = accordion_with(3);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    a.set_focused(true);
+    a.handle_event(&no_mod_key(Key::Down), &theme); // focus panel 0
+    // Initially collapsed.
+    let r = a.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    // Toggling once should expand.
+    // Re-toggle should collapse.
+    let r = a.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Consumed);
+}
+
+#[test]
+fn accordion_space_also_toggles_focused_panel() {
+    let theme = default_theme();
+    let mut a = accordion_with(2);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    a.set_focused(true);
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    let r = a.handle_event(&no_mod_key(Key::Space), &theme);
+    assert_eq!(r, EventResult::Consumed);
+}
+
+#[test]
+fn accordion_arrows_ignored_when_unfocused() {
+    // The skeptic gate test: if focus is on a child inside an expanded
+    // panel (or anywhere outside the Accordion), the Accordion must NOT
+    // steal Up/Down — it would break text fields embedded in panels.
+    let theme = default_theme();
+    let mut a = accordion_with(3);
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    // Not focused.
+    assert!(!a.is_focused());
+    let r = a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(
+        r,
+        EventResult::Ignored,
+        "unfocused Accordion must not consume Down"
+    );
+    assert_eq!(
+        a.focused_panel(),
+        None,
+        "unfocused Down must not move panel cursor"
+    );
+
+    let r = a.handle_event(&no_mod_key(Key::Up), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    let r = a.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Ignored);
+}
+
+#[test]
+fn accordion_down_skips_disabled_panel() {
+    let theme = default_theme();
+    let mut a = Accordion::new(test_id());
+    a.add_panel(AccordionPanel::new(
+        "a",
+        Box::new(Label::new(test_id(), "x")) as Box<dyn Widget>,
+    ));
+    let mut middle = AccordionPanel::new(
+        "b",
+        Box::new(Label::new(test_id(), "y")) as Box<dyn Widget>,
+    );
+    middle.enabled = false;
+    a.add_panel(middle);
+    a.add_panel(AccordionPanel::new(
+        "c",
+        Box::new(Label::new(test_id(), "z")) as Box<dyn Widget>,
+    ));
+    a.layout(Rect::new(0, 0, 400, 600), &theme);
+    a.set_focused(true);
+
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(a.focused_panel(), Some(0));
+    a.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(
+        a.focused_panel(),
+        Some(2),
+        "Down must skip the disabled middle panel"
+    );
+}

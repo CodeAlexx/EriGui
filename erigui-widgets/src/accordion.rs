@@ -1,7 +1,7 @@
 use crate::Icon;
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
-    Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, MouseButton,
+    MouseButtonEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -54,6 +54,10 @@ pub struct Accordion {
     // Visual state
     hovered_panel: Option<usize>,
     pressed_panel: Option<usize>,
+    /// Panel that receives keyboard focus when the Accordion itself is focused.
+    /// `None` means no panel is the keyboard cursor; Up/Down picks the first
+    /// enabled panel. Distinct from mouse hover/press.
+    focused_panel: Option<usize>,
     panel_animations: Vec<f32>, // 0.0 = collapsed, 1.0 = expanded
 
     // Callbacks
@@ -72,6 +76,7 @@ impl Accordion {
             animation_speed: 0.15,
             hovered_panel: None,
             pressed_panel: None,
+            focused_panel: None,
             panel_animations: Vec::new(),
             on_panel_toggle: None,
         }
@@ -177,6 +182,44 @@ impl Accordion {
         for panel in &mut self.panels {
             panel.expanded = false;
         }
+    }
+
+    /// Index of the currently keyboard-focused panel, or `None` if no panel
+    /// is the cursor. Exposed for tests.
+    pub fn focused_panel(&self) -> Option<usize> {
+        self.focused_panel
+    }
+
+    /// Find the next enabled panel from `start`, going `forward` or backward.
+    /// Wraps around. Skips disabled panels. Returns `None` if no enabled
+    /// panel exists at all (or only `start` itself is enabled, leaving
+    /// nowhere to go).
+    fn next_enabled_panel(&self, start: usize, forward: bool) -> Option<usize> {
+        let n = self.panels.len();
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return if self.panels[0].enabled { Some(0) } else { None };
+        }
+        for step in 1..=n {
+            let i = if forward {
+                (start + step) % n
+            } else {
+                // step <= n so (start + n - step) is in [start, start+n-1]
+                (start + n - step) % n
+            };
+            if self.panels[i].enabled {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Pick a starting panel for keyboard navigation when none is focused.
+    /// Prefers the first enabled panel.
+    fn first_enabled_panel(&self) -> Option<usize> {
+        self.panels.iter().position(|p| p.enabled)
     }
 
     fn update_animations(&mut self) {
@@ -522,6 +565,53 @@ impl Widget for Accordion {
 
                 return EventResult::Consumed;
             }
+            Event::KeyPress(KeyPressEvent { key, modifiers, .. })
+                if self.state.focused && modifiers.is_empty() =>
+            {
+                // Only consume keyboard nav when the Accordion itself owns
+                // focus. If a child widget inside an expanded panel has
+                // focus, the Accordion is unfocused and the event falls
+                // through to the forwarding arm below.
+                match key {
+                    Key::Down => {
+                        let next = match self.focused_panel {
+                            Some(start) => self.next_enabled_panel(start, true),
+                            None => self.first_enabled_panel(),
+                        };
+                        if let Some(idx) = next {
+                            self.focused_panel = Some(idx);
+                            return EventResult::Consumed;
+                        }
+                        return EventResult::Ignored;
+                    }
+                    Key::Up => {
+                        let next = match self.focused_panel {
+                            Some(start) => self.next_enabled_panel(start, false),
+                            None => self.first_enabled_panel(),
+                        };
+                        if let Some(idx) = next {
+                            self.focused_panel = Some(idx);
+                            return EventResult::Consumed;
+                        }
+                        return EventResult::Ignored;
+                    }
+                    Key::Enter | Key::Space => {
+                        if let Some(idx) = self.focused_panel {
+                            if idx < self.panels.len() && self.panels[idx].enabled {
+                                self.toggle_panel(idx);
+                                return EventResult::Consumed;
+                            }
+                        }
+                        return EventResult::Ignored;
+                    }
+                    _ => {
+                        // Other keys: do not consume, do not forward to
+                        // content (the Accordion has focus, not the
+                        // content). Host can decide what to do.
+                        return EventResult::Ignored;
+                    }
+                }
+            }
             _ => {
                 // Pass events to expanded content panels
                 let panels_count = self.panels.len();
@@ -572,7 +662,7 @@ impl Widget for Accordion {
     }
 
     fn can_focus(&self) -> bool {
-        false
+        self.state.enabled && self.state.visible
     }
 
     fn as_any(&self) -> &dyn Any {

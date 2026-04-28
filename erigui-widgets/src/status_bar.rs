@@ -99,6 +99,26 @@ impl StatusBar {
         self.panels.clear();
     }
 
+    /// Width (in pixels) reserved between adjacent panels, derived
+    /// from the active separator style. None reserves nothing; Line
+    /// is 1px (single line); Raised/Sunken are 2px (two stacked
+    /// lines, light + dark).
+    fn separator_width(&self) -> i32 {
+        match self.separator_style {
+            SeparatorStyle::None => 0,
+            SeparatorStyle::Line => 1,
+            SeparatorStyle::Raised | SeparatorStyle::Sunken => 2,
+        }
+    }
+
+    /// Test-only accessor: expose the per-panel rectangles produced
+    /// by the layout pass. Used by integration tests to verify that
+    /// separator width is correctly propagated into panel widths.
+    #[doc(hidden)]
+    pub fn panel_rects_for_test(&self) -> Vec<Rect> {
+        self.calculate_panel_rects()
+    }
+
     fn calculate_panel_rects(&self) -> Vec<Rect> {
         let mut rects = Vec::new();
         let total_width = self.state.bounds.width();
@@ -107,6 +127,8 @@ impl StatusBar {
         if panel_count == 0 {
             return rects;
         }
+
+        let sep_w = self.separator_width();
 
         // Calculate widths
         let mut fixed_width = 0;
@@ -133,7 +155,7 @@ impl StatusBar {
 
         // Calculate spring widths
         let available_for_springs =
-            (total_width - fixed_width - (panel_count as i32 - 1) * 2).max(0);
+            (total_width - fixed_width - (panel_count as i32 - 1) * sep_w).max(0);
         let spring_width = if spring_count > 0 {
             available_for_springs / spring_count
         } else {
@@ -149,7 +171,7 @@ impl StatusBar {
             };
 
             rects.push(Rect::new(x, self.state.bounds.y(), width, self.height));
-            x += width + 2; // 2px separator
+            x += width + sep_w;
         }
 
         rects

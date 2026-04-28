@@ -592,6 +592,61 @@ fn status_bar_ignores_all_events() {
 }
 
 #[test]
+fn status_bar_separator_none_reserves_no_gap_between_panels() {
+    // Regression: calculate_panel_rects previously hardcoded a 2px
+    // gap between panels regardless of separator_style. With
+    // SeparatorStyle::None, the bar drew nothing in those 2px,
+    // leaving visible gutters with no separator. Lock in that the
+    // gap is 0px under None: with three fixed-width panels of 100,
+    // the third panel must start exactly at x = 200 (no gaps).
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id()).with_separator_style(SeparatorStyle::None);
+    sb.add_panel(StatusPanel::new("a").with_fixed_width(100));
+    sb.add_panel(StatusPanel::new("b").with_fixed_width(100));
+    sb.add_panel(StatusPanel::new("c").with_fixed_width(100));
+    sb.layout(Rect::new(0, 0, 800, 24), &theme);
+
+    let rects = sb.panel_rects_for_test();
+    assert_eq!(rects.len(), 3);
+    assert_eq!(rects[0].x(), 0);
+    assert_eq!(rects[0].width(), 100);
+    assert_eq!(rects[1].x(), 100, "panel 1 abuts panel 0 with no gap");
+    assert_eq!(rects[2].x(), 200, "panel 2 abuts panel 1 with no gap");
+}
+
+#[test]
+fn status_bar_separator_line_reserves_one_pixel_gap() {
+    // SeparatorStyle::Line draws a 1px vertical line; the layout
+    // reserves exactly 1px between panels for it.
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id()).with_separator_style(SeparatorStyle::Line);
+    sb.add_panel(StatusPanel::new("a").with_fixed_width(100));
+    sb.add_panel(StatusPanel::new("b").with_fixed_width(100));
+    sb.layout(Rect::new(0, 0, 800, 24), &theme);
+
+    let rects = sb.panel_rects_for_test();
+    assert_eq!(rects.len(), 2);
+    assert_eq!(rects[0].x(), 0);
+    assert_eq!(rects[1].x(), 101, "Line separator reserves 1px between panels");
+}
+
+#[test]
+fn status_bar_separator_sunken_reserves_two_pixel_gap() {
+    // SeparatorStyle::Sunken (and Raised) draw two stacked 1px
+    // lines; the layout reserves 2px between panels.
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id()).with_separator_style(SeparatorStyle::Sunken);
+    sb.add_panel(StatusPanel::new("a").with_fixed_width(100));
+    sb.add_panel(StatusPanel::new("b").with_fixed_width(100));
+    sb.layout(Rect::new(0, 0, 800, 24), &theme);
+
+    let rects = sb.panel_rects_for_test();
+    assert_eq!(rects.len(), 2);
+    assert_eq!(rects[0].x(), 0);
+    assert_eq!(rects[1].x(), 102, "Sunken separator reserves 2px between panels");
+}
+
+#[test]
 fn container_add_remove_does_not_panic_when_layout_mode_is_grid() {
     // Smoke: switch to Grid mode (which has a different measure path) and
     // exercise child mutations + measure end-to-end.

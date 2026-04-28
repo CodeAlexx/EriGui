@@ -87,6 +87,13 @@ impl ColorPicker {
     }
 
     pub fn set_color(&mut self, color: Color) {
+        // Short-circuit: avoid recomputing HSV / firing on_change when
+        // the new color is identical to the current one. Prevents
+        // callback floods when callers re-set the same color in a
+        // tight loop or as part of a render/update cycle.
+        if self.color == color {
+            return;
+        }
         self.color = color;
         self.hsv = Self::rgb_to_hsv(
             color.r as f32 / 255.0,

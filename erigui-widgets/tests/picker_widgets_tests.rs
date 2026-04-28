@@ -104,25 +104,27 @@ fn color_picker_set_color_round_trips() {
 }
 
 #[test]
-fn color_picker_set_color_fires_callback_each_call() {
-    // The implementation calls the callback unconditionally on every
-    // set_color, including when set to the SAME color. Lock that in --
-    // if a future refactor adds equality short-circuit, this test will
-    // catch the contract change.
+fn color_picker_set_color_short_circuits_on_unchanged_color() {
+    // set_color is idempotent: setting the same color twice fires
+    // on_change exactly once. Prevents callback floods when callers
+    // re-set the same color in a render/update loop.
     let captured: Rc<RefCell<Vec<Color>>> = Rc::new(RefCell::new(Vec::new()));
     let cap = captured.clone();
     let mut cp = ColorPicker::new(test_id())
         .with_on_change(move |c| cap.borrow_mut().push(c));
 
     cp.set_color(Color::rgb(10, 20, 30));
-    cp.set_color(Color::rgb(10, 20, 30)); // same color
+    cp.set_color(Color::rgb(10, 20, 30)); // same color -- must not fire
     cp.set_color(Color::rgb(40, 50, 60));
 
     let v = captured.borrow();
-    assert_eq!(v.len(), 3, "set_color fires callback every time, even on same color");
+    assert_eq!(
+        v.len(),
+        2,
+        "set_color must short-circuit on unchanged color"
+    );
     assert_eq!((v[0].r, v[0].g, v[0].b), (10, 20, 30));
-    assert_eq!((v[1].r, v[1].g, v[1].b), (10, 20, 30));
-    assert_eq!((v[2].r, v[2].g, v[2].b), (40, 50, 60));
+    assert_eq!((v[1].r, v[1].g, v[1].b), (40, 50, 60));
 }
 
 #[test]

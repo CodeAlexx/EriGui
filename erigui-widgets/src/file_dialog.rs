@@ -6,6 +6,7 @@ use erigui_core::{
 use std::any::Any;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 /// Callback fired when the user selects a file. Argument: selected path.
 type FileSelectedCallback = Box<dyn FnMut(&Path)>;
@@ -95,7 +96,18 @@ pub struct FileDialog {
     // Callbacks
     on_file_selected: Option<FileSelectedCallback>,
     on_cancel: Option<CancelCallback>,
+
+    // Double-click detection state. The first click on a file-list row
+    // selects it; only a second click on the SAME row within
+    // DOUBLE_CLICK_THRESHOLD navigates (for directories) or accepts
+    // the file (for files).
+    last_click_time: Option<Instant>,
+    last_click_index: Option<usize>,
 }
+
+/// Maximum elapsed time between two clicks for them to register as a
+/// double-click. Matches the 350-500ms range used by common toolkits.
+const DOUBLE_CLICK_THRESHOLD: std::time::Duration = std::time::Duration::from_millis(500);
 
 impl FileDialog {
     pub fn new(id: WidgetId, mode: FileDialogMode) -> Self {
@@ -128,6 +140,8 @@ impl FileDialog {
             footer_rect: Rect::default(),
             on_file_selected: None,
             on_cancel: None,
+            last_click_time: None,
+            last_click_index: None,
         };
 
         dialog.navigate_to_path(&home_dir);
@@ -663,7 +677,7 @@ impl Widget for FileDialog {
             }
         }
 
-        // Handle double-click on directories
+        // Handle double-click on directories / files
         match event {
             Event::MouseButton(MouseButtonEvent {
                 button: MouseButton::Left,
@@ -672,7 +686,9 @@ impl Widget for FileDialog {
                 ..
             }) => {
                 if *pressed {
-                    // Check for double-click on file list
+                    // True double-click detection: a second press on
+                    // the same row within DOUBLE_CLICK_THRESHOLD counts
+                    // as a double-click. A first press just selects.
                     if self.file_list.bounds().contains(*position) {
                         if let Some(item) = self.file_list.selected_item() {
                             let selected_index = self
@@ -681,16 +697,37 @@ impl Widget for FileDialog {
                                 .position(|e| e.path.to_string_lossy() == item.id)
                                 .unwrap_or(0);
                             if selected_index < self.entries.len() {
-                                let is_dir = self.entries[selected_index].is_dir;
-                                let path = self.entries[selected_index].path.clone();
+                                let now = Instant::now();
+                                let is_double_click = self
+                                    .last_click_time
+                                    .map(|t| now.duration_since(t) < DOUBLE_CLICK_THRESHOLD)
+                                    .unwrap_or(false)
+                                    && self.last_click_index == Some(selected_index);
 
-                                if is_dir {
-                                    self.navigate_to_path(&path);
-                                    return EventResult::Consumed;
-                                } else if self.mode == FileDialogMode::Open {
-                                    self.selected_file = Some(path);
-                                    self.handle_ok();
-                                    return EventResult::Consumed;
+                                // Always update click tracking before any
+                                // action, so the next click compares against
+                                // this one.
+                                self.last_click_time = Some(now);
+                                self.last_click_index = Some(selected_index);
+
+                                if is_double_click {
+                                    let is_dir = self.entries[selected_index].is_dir;
+                                    let path = self.entries[selected_index].path.clone();
+
+                                    if is_dir {
+                                        self.navigate_to_path(&path);
+                                        // navigate clears selection state;
+                                        // also reset click tracking so the
+                                        // first click in the new directory
+                                        // is treated as a single click.
+                                        self.last_click_time = None;
+                                        self.last_click_index = None;
+                                        return EventResult::Consumed;
+                                    } else if self.mode == FileDialogMode::Open {
+                                        self.selected_file = Some(path);
+                                        self.handle_ok();
+                                        return EventResult::Consumed;
+                                    }
                                 }
                             }
                         }

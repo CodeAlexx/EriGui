@@ -1240,3 +1240,135 @@ fn file_dialog_with_initial_path_to_existing_file_records_selection() {
         "with_initial_path(file) must set selected_file"
     );
 }
+
+#[test]
+fn file_dialog_single_click_on_file_does_not_open() {
+    // Regression: previously the press handler navigated/opened on
+    // every press (the "double-click" comment was a lie). After the
+    // fix, a single press inside the file list must NEVER fire
+    // on_file_selected -- it only selects the row.
+    //
+    // We use the erigui-widgets crate dir as the listing target, since
+    // we know Cargo.toml is a file in there. With the dialog laid out
+    // at (0,0,700,500), file_list bounds are (10,90,680,350) and rows
+    // are 24px tall starting at relative y=0.
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let opened: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = opened.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(&manifest_dir)
+        .with_on_file_selected(move |_| *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    // Row 0 of the listing (whatever it is — the contract is that a
+    // SINGLE click never opens, regardless of which row).
+    let press_row0 = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(200, 100),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&press_row0, &theme);
+    assert_eq!(
+        *opened.borrow(),
+        0,
+        "single press in file_list must not fire on_file_selected"
+    );
+}
+
+#[test]
+fn file_dialog_double_click_on_same_row_opens_file() {
+    // After the double-click fix: two presses on the SAME row within
+    // 500ms should fire on_file_selected for a file in Open mode.
+    // Because Cargo.toml is a regular file in erigui-widgets/, and
+    // directories are listed BEFORE files in the sort, picking a row
+    // that lands on a file requires navigating past the dirs first.
+    //
+    // To keep the test deterministic, we use a fresh dialog whose
+    // current_path is a directory containing only one entry, by way
+    // of a new temp subdirectory.
+    let temp_root = std::env::temp_dir().join(format!(
+        "erigui_filedialog_dblclick_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&temp_root); // clean prior runs
+    std::fs::create_dir_all(&temp_root).expect("create temp test dir");
+    let probe_path = temp_root.join("probe.txt");
+    std::fs::write(&probe_path, b"hi").expect("write probe file");
+
+    let opened: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let cap = opened.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(&temp_root)
+        .with_on_file_selected(move |p| *cap.borrow_mut() = Some(p.to_path_buf()));
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    // Row 0 (the only entry: probe.txt)
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(200, 100),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    // First press: selects, no fire.
+    let _ = fd.handle_event(&press, &theme);
+    assert!(
+        opened.borrow().is_none(),
+        "first press selects only -- must not fire callback"
+    );
+    // Second press in the double-click window: opens.
+    let _ = fd.handle_event(&press, &theme);
+    let sel = opened.borrow();
+    assert_eq!(
+        sel.as_deref(),
+        Some(probe_path.as_path()),
+        "second press within window opens the file"
+    );
+
+    // Cleanup
+    drop(sel);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn file_dialog_two_clicks_outside_window_do_not_open() {
+    // Two presses on the same row but with > 500ms between them are
+    // two single-clicks, not a double-click. Must not fire callback.
+    let temp_root = std::env::temp_dir().join(format!(
+        "erigui_filedialog_slowclick_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&temp_root);
+    std::fs::create_dir_all(&temp_root).expect("create temp test dir");
+    let probe_path = temp_root.join("probe.txt");
+    std::fs::write(&probe_path, b"hi").expect("write probe file");
+
+    let opened: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = opened.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(&temp_root)
+        .with_on_file_selected(move |_| *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(200, 100),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&press, &theme);
+    // Wait past the 500ms double-click threshold.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    let _ = fd.handle_event(&press, &theme);
+
+    assert_eq!(
+        *opened.borrow(),
+        0,
+        "two clicks outside the double-click window must not open"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_root);
+}

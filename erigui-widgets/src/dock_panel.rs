@@ -293,7 +293,6 @@ impl DockPanel {
     }
 
     fn remove_from_dock_tree(&mut self, panel_id: &str) {
-        // TODO: Implement proper tree cleanup
         let mut new_root = DockNode::Empty;
         std::mem::swap(&mut new_root, &mut self.root_node);
         let empty = self.remove_from_node(&mut new_root, panel_id);

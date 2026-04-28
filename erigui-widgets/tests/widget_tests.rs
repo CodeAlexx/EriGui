@@ -1778,6 +1778,38 @@ fn text_input_tooltip_shows_after_delay() {
 }
 
 #[test]
+fn spin_box_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut sb = SpinBox::new(test_id(), 0.0, 100.0, 50.0)
+        .with_tooltip_state(TooltipState::new("Pages").with_delay_ms(20));
+    sb.layout(Rect::new(0, 0, 120, 30), &theme);
+
+    sb.handle_event(&move_event(Point::new(40, 15)), &theme);
+    assert!(!sb.tooltip().unwrap().is_visible());
+
+    std::thread::sleep(Duration::from_millis(30));
+    sb.handle_event(&move_event(Point::new(41, 15)), &theme);
+    assert!(sb.tooltip().unwrap().is_visible());
+}
+
+#[test]
+fn spin_box_tooltip_hides_on_mouse_press() {
+    let theme = default_theme();
+    let mut sb = SpinBox::new(test_id(), 0.0, 100.0, 50.0)
+        .with_tooltip_state(TooltipState::new("Pages").with_delay_ms(0));
+    sb.layout(Rect::new(0, 0, 120, 30), &theme);
+
+    sb.handle_event(&move_event(Point::new(40, 15)), &theme);
+    assert!(sb.tooltip().unwrap().is_visible());
+
+    sb.handle_event(&left_press_event(Point::new(40, 15)), &theme);
+    assert!(
+        !sb.tooltip().unwrap().is_visible(),
+        "press must dismiss the tooltip"
+    );
+}
+
+#[test]
 fn text_input_tooltip_hides_on_mouse_press() {
     let theme = default_theme();
     let mut ti = TextInput::new(test_id())

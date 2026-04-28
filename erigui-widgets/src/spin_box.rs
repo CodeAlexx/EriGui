@@ -1,3 +1,4 @@
+use crate::tooltip::TooltipState;
 use erigui_core::{
     DrawContext, Event, EventResult, Key, LayoutConstraints, MouseButton, Point, Rect, Size, Theme,
     Widget, WidgetId, WidgetState,
@@ -19,6 +20,7 @@ pub struct SpinBox {
     button_repeat_start: Option<Instant>,
     last_repeat: Option<Instant>,
     on_value_changed: Option<Box<dyn FnMut(f32)>>,
+    tooltip: Option<TooltipState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,9 +45,27 @@ impl SpinBox {
             button_repeat_start: None,
             last_repeat: None,
             on_value_changed: None,
+            tooltip: None,
         };
         spin_box.update_text_from_value();
         spin_box
+    }
+
+    /// Attach a hover tooltip. Mirrors Button's `with_tooltip`.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(TooltipState::new(text));
+        self
+    }
+
+    /// Pre-configured `TooltipState` variant.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Read access for tests and introspection.
+    pub fn tooltip(&self) -> Option<&TooltipState> {
+        self.tooltip.as_ref()
     }
 
     pub fn with_step(mut self, step: f32) -> Self {
@@ -305,11 +325,26 @@ impl Widget for SpinBox {
             theme.colors.text_disabled
         });
         self.draw_arrow(context, down_rect, false);
+
+        // Tooltip overlays the spin box. Drawn last so it sits on
+        // top of the chrome.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.visible || !self.state.enabled {
+            // Hidden / disabled spin box must not show a stale tooltip.
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
             return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility off the same event stream.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
         }
 
         match event {
@@ -452,6 +487,9 @@ impl Widget for SpinBox {
         if !enabled {
             self.is_editing = false;
             self.pressed_button = None;
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
         }
     }
 

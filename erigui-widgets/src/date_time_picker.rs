@@ -1000,7 +1000,22 @@ impl Widget for DateTimePicker {
 
     fn set_focused(&mut self, focused: bool) {
         self.state.focused = focused;
+        // Propagate to BOTH children, not just the input. Previously the
+        // calendar_button never saw focus changes, so its own focus
+        // bookkeeping drifted from the parent picker's.
         self.input.set_focused(focused);
+        self.calendar_button.set_focused(focused);
+        // When the host hands focus away, clear edit/popup state so the
+        // picker doesn't keep editing_hour/editing_minute armed (which
+        // combined with the focus gate in handle_event would only pop the
+        // value back if focus returns) or leave a popup orphan.
+        if !focused {
+            self.editing_hour = false;
+            self.editing_minute = false;
+            self.show_calendar = false;
+            self.show_time_picker = false;
+            self.hovered_day = None;
+        }
     }
 
     fn can_focus(&self) -> bool {

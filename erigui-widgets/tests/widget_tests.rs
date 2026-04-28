@@ -1678,3 +1678,77 @@ fn accordion_down_skips_disabled_panel() {
         "Down must skip the disabled middle panel"
     );
 }
+
+// ============================================================================
+// Per-widget tooltip retrofit (2026-04-28)
+// Toolbar + 5 widgets gain their own TooltipState following the Button
+// pattern. Tests confirm the tooltip shows after delay-elapsed hover and
+// hides on press / mouse-leave.
+// ============================================================================
+
+use erigui_core::{MouseMoveEvent};
+use erigui_widgets::{Toolbar, TooltipState};
+use std::time::Duration;
+
+fn move_event(p: Point) -> Event {
+    Event::MouseMove(MouseMoveEvent {
+        position: p,
+        delta: Point::ZERO,
+        modifiers: Modifiers::empty(),
+    })
+}
+
+fn left_press_event(p: Point) -> Event {
+    Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: p,
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    })
+}
+
+#[test]
+fn toolbar_button_with_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut tb = Toolbar::new(test_id())
+        .add_button("Open", None, || {})
+        .with_last_tooltip_state(TooltipState::new("Open file").with_delay_ms(20));
+    tb.layout(Rect::new(0, 0, 400, 32), &theme);
+
+    // First MouseMove latches the hover-start timer but doesn't show.
+    tb.handle_event(&move_event(Point::new(8, 16)), &theme);
+    assert!(
+        !tb.item_tooltip(0).unwrap().is_visible(),
+        "tooltip must not appear before delay elapses"
+    );
+
+    // Wait past the delay, then re-emit a move — promotion happens
+    // when `update_on_event` runs again with the timer elapsed.
+    std::thread::sleep(Duration::from_millis(30));
+    tb.handle_event(&move_event(Point::new(9, 16)), &theme);
+    assert!(
+        tb.item_tooltip(0).unwrap().is_visible(),
+        "tooltip must show once delay has elapsed while hovering"
+    );
+}
+
+#[test]
+fn toolbar_button_tooltip_hides_on_mouse_leave() {
+    let theme = default_theme();
+    let mut tb = Toolbar::new(test_id())
+        .add_button("Open", None, || {})
+        .with_last_tooltip_state(TooltipState::new("Open file").with_delay_ms(0));
+    tb.layout(Rect::new(0, 0, 400, 32), &theme);
+
+    // Delay 0 → first move shows.
+    tb.handle_event(&move_event(Point::new(8, 16)), &theme);
+    assert!(tb.item_tooltip(0).unwrap().is_visible());
+
+    // Move far outside the item rect — mouse-leave hides.
+    tb.handle_event(&move_event(Point::new(800, 800)), &theme);
+    assert!(
+        !tb.item_tooltip(0).unwrap().is_visible(),
+        "tooltip must hide once mouse leaves the item bounds"
+    );
+}
+

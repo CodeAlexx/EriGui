@@ -1,3 +1,4 @@
+use crate::tooltip::TooltipState;
 use crate::{ButtonIcon, MenuItem};
 use erigui_core::{
     DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
@@ -16,7 +17,7 @@ pub enum ToolbarItem {
         id: WidgetId,
         text: String,
         icon: Option<ButtonIcon>,
-        tooltip: Option<String>,
+        tooltip: Option<TooltipState>,
         enabled: bool,
         on_click: Option<Box<dyn FnMut()>>,
     },
@@ -25,7 +26,7 @@ pub enum ToolbarItem {
         id: WidgetId,
         text: String,
         icon: Option<ButtonIcon>,
-        tooltip: Option<String>,
+        tooltip: Option<TooltipState>,
         menu_items: Vec<MenuItem>,
         enabled: bool,
     },
@@ -33,7 +34,7 @@ pub enum ToolbarItem {
         id: WidgetId,
         text: String,
         icon: Option<ButtonIcon>,
-        tooltip: Option<String>,
+        tooltip: Option<TooltipState>,
         pressed: bool,
         group: Option<u32>,
         enabled: bool,
@@ -42,6 +43,37 @@ pub enum ToolbarItem {
     Custom {
         widget: Box<dyn Widget>,
     },
+}
+
+impl ToolbarItem {
+    /// Attach a hover tooltip to this item. No-op for `Separator` and
+    /// `Custom`, which don't carry a tooltip slot — composing toolbars
+    /// with custom widgets should set tooltips on the inner widget.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        match &mut self {
+            ToolbarItem::Button { tooltip, .. }
+            | ToolbarItem::DropdownButton { tooltip, .. }
+            | ToolbarItem::ToggleButton { tooltip, .. } => {
+                *tooltip = Some(TooltipState::new(text));
+            }
+            ToolbarItem::Separator | ToolbarItem::Custom { .. } => {}
+        }
+        self
+    }
+
+    /// Variant of `with_tooltip` that lets the caller pre-configure
+    /// position and delay on the `TooltipState`.
+    pub fn with_tooltip_state(mut self, ts: TooltipState) -> Self {
+        match &mut self {
+            ToolbarItem::Button { tooltip, .. }
+            | ToolbarItem::DropdownButton { tooltip, .. }
+            | ToolbarItem::ToggleButton { tooltip, .. } => {
+                *tooltip = Some(ts);
+            }
+            ToolbarItem::Separator | ToolbarItem::Custom { .. } => {}
+        }
+        self
+    }
 }
 
 pub struct Toolbar {
@@ -142,6 +174,95 @@ impl Toolbar {
             on_toggle: Some(Box::new(on_toggle)),
         });
         self
+    }
+
+    /// Attach a hover tooltip to the most-recently-added toolbar item.
+    /// Call this immediately after `add_button` / `add_dropdown_button`
+    /// / `add_toggle_button` in a builder chain. No-op if the last item
+    /// is a `Separator` or `Custom`, or if the toolbar is empty.
+    pub fn with_last_tooltip(mut self, text: impl Into<String>) -> Self {
+        if let Some(item) = self.items.last_mut() {
+            match item {
+                ToolbarItem::Button { tooltip, .. }
+                | ToolbarItem::DropdownButton { tooltip, .. }
+                | ToolbarItem::ToggleButton { tooltip, .. } => {
+                    *tooltip = Some(TooltipState::new(text));
+                }
+                ToolbarItem::Separator | ToolbarItem::Custom { .. } => {}
+            }
+        }
+        self
+    }
+
+    /// Like `with_last_tooltip` but takes a pre-configured `TooltipState`
+    /// — use when defaults aren't right (custom delay, position).
+    pub fn with_last_tooltip_state(mut self, ts: TooltipState) -> Self {
+        if let Some(item) = self.items.last_mut() {
+            match item {
+                ToolbarItem::Button { tooltip, .. }
+                | ToolbarItem::DropdownButton { tooltip, .. }
+                | ToolbarItem::ToggleButton { tooltip, .. } => {
+                    *tooltip = Some(ts);
+                }
+                ToolbarItem::Separator | ToolbarItem::Custom { .. } => {}
+            }
+        }
+        self
+    }
+
+    /// Read access to a single item's tooltip — used by tests to
+    /// verify show/hide state. Returns `None` if the index is out of
+    /// range or the item is a `Separator` / `Custom` (no tooltip slot).
+    pub fn item_tooltip(&self, index: usize) -> Option<&TooltipState> {
+        match self.items.get(index)? {
+            ToolbarItem::Button { tooltip, .. }
+            | ToolbarItem::DropdownButton { tooltip, .. }
+            | ToolbarItem::ToggleButton { tooltip, .. } => tooltip.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Walk the visible (non-overflow) toolbar items and compute the
+    /// draw-rect for each. Used by `draw`, `handle_event`, and the
+    /// tooltip dispatch loop so all three agree on hit geometry. The
+    /// draw rect matches what `draw` paints (chrome-aligned), so
+    /// tooltips anchor cleanly to the visible button.
+    fn item_draw_rects(&self, theme: &Theme) -> Vec<(usize, Rect)> {
+        let mut out = Vec::with_capacity(self.items.len());
+        let mut current_pos = match self.orientation {
+            Orientation::Horizontal => self.state.bounds.x(),
+            Orientation::Vertical => self.state.bounds.y(),
+        };
+        for (i, item) in self.items.iter().enumerate() {
+            if self.overflow_items.contains(&i) {
+                continue;
+            }
+            let item_size = self.calculate_item_size(item, theme);
+            let item_rect = match self.orientation {
+                Orientation::Horizontal => Rect::new(
+                    current_pos,
+                    self.state.bounds.y() + (self.state.bounds.height() - item_size.height) / 2,
+                    item_size.width,
+                    item_size.height,
+                ),
+                Orientation::Vertical => Rect::new(
+                    self.state.bounds.x() + (self.state.bounds.width() - item_size.width) / 2,
+                    current_pos,
+                    item_size.width,
+                    item_size.height,
+                ),
+            };
+            out.push((i, item_rect));
+
+            current_pos += match self.orientation {
+                Orientation::Horizontal => item_size.width,
+                Orientation::Vertical => item_size.height,
+            };
+            if i < self.items.len() - 1 && !self.overflow_items.contains(&(i + 1)) {
+                current_pos += self.item_spacing;
+            }
+        }
+        out
     }
 
     fn calculate_item_size(&self, item: &ToolbarItem, theme: &Theme) -> Size {
@@ -548,11 +669,66 @@ impl Widget for Toolbar {
         // Draw border
         context.set_color(theme.colors.border);
         context.draw_rect(self.state.bounds);
+
+        // Draw tooltips last so they overlay all toolbar chrome.
+        // Each item's tooltip anchors to the same draw rect computed
+        // by `item_draw_rects`, so the tooltip floats above the
+        // button it belongs to.
+        let rects = self.item_draw_rects(theme);
+        for (i, item_rect) in rects {
+            let tooltip = match &self.items[i] {
+                ToolbarItem::Button { tooltip, .. }
+                | ToolbarItem::DropdownButton { tooltip, .. }
+                | ToolbarItem::ToggleButton { tooltip, .. } => tooltip.as_ref(),
+                _ => None,
+            };
+            if let Some(t) = tooltip {
+                t.draw(context, theme, item_rect);
+            }
+        }
     }
 
     fn handle_event(&mut self, event: &Event, theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
+            // Hidden / disabled toolbar — clear any latched tooltip
+            // state so it doesn't pop up next time we re-enable.
+            for item in &mut self.items {
+                let tooltip = match item {
+                    ToolbarItem::Button { tooltip, .. }
+                    | ToolbarItem::DropdownButton { tooltip, .. }
+                    | ToolbarItem::ToggleButton { tooltip, .. } => tooltip.as_mut(),
+                    _ => None,
+                };
+                if let Some(t) = tooltip {
+                    t.hide();
+                }
+            }
             return EventResult::Ignored;
+        }
+
+        // Dispatch tooltip events to each visible item using its draw
+        // rect. Done before the main match so a button press both
+        // dismisses the tooltip and fires the click handler in the
+        // same event. Per-item disabled state hides the tooltip
+        // (matches Button's behaviour).
+        let rects = self.item_draw_rects(theme);
+        for (i, item_rect) in &rects {
+            let item = &mut self.items[*i];
+            let (tooltip, item_enabled) = match item {
+                ToolbarItem::Button { tooltip, enabled, .. }
+                | ToolbarItem::DropdownButton { tooltip, enabled, .. }
+                | ToolbarItem::ToggleButton { tooltip, enabled, .. } => {
+                    (tooltip.as_mut(), *enabled)
+                }
+                _ => (None, true),
+            };
+            if let Some(t) = tooltip {
+                if !item_enabled {
+                    t.hide();
+                } else {
+                    t.update_on_event(event, *item_rect);
+                }
+            }
         }
 
         match event {

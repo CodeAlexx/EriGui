@@ -1021,7 +1021,12 @@ impl NodeGraph {
         }
     }
 
-    fn draw_edges(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
+    fn draw_edges(&self, ctx: &mut dyn DrawContext, _theme: &Theme) {
+        // `_theme` is intentionally unused: edges deliberately render in
+        // amber/gold (see EDGE_COLOR / EDGE_HOVER below) so they stand out
+        // against the dark node-graph canvas rather than blend into the
+        // theme accent. Renamed from `theme` to silence the unused-var
+        // warning while preserving the trait-conforming signature.
         for (idx, edge) in self.graph.edges.iter().enumerate() {
             let from = self.port_positions.get(&PortRef {
                 node_id: edge.from_node,

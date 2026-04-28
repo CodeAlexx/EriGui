@@ -45,30 +45,25 @@ zero/negative clamping, and 1px-border floor at extreme scales.
 Workspace: **317 passed**, 0 failed (was 309). Cross-monitor changes
 not handled — explicit user decision.
 
-### 2. Native file picker (no GTK)
-**Symptom**: file_dialog widget has ugly fonts, awkward layout, no
-visible scrollbar — user complained explicitly. The user-flagged "GTK
-is unacceptable" rules out `rfd`.
+### 2. Native file picker (no GTK) — **DONE 2026-04-28**
+Shipped: `tinyfiledialogs = "3"` in `erigui-app/Cargo.toml`,
+`open_save_dialog` / `open_load_dialog` in main.rs now call
+`save_file_dialog_with_filter` / `open_file_dialog` synchronously.
+The in-app `FileDialog` widget code is untouched in the library
+(left as fallback for headless envs). Removed from `App`: the
+`file_dialog` field, `dialog_purpose`, `pending_path`,
+`dialog_cancelled`, `DialogPurpose` enum, `FILE_DIALOG_W/H`
+constants, `layout_dialog_only`, `complete_dialog`, the
+modal-priority block in `handle_event`, the dialog branch in
+`layout`, and the translucent-backdrop branch in `draw`. The
+synchronous-blocking model matches what every native app does for
+File→Save. `Color` import dropped (was only used by the backdrop).
 
-**Fix**: replace in-app FileDialog widget with `tinyfiledialogs` calls
-in the host (erigui-app's open/save handlers). The crate wraps
-`zenity` (Linux), native dialogs (mac/windows). No GTK link.
-
-```toml
-tinyfiledialogs = "3"
-```
-
-In `erigui-app/src/main.rs`:
-```rust
-let path = tinyfiledialogs::open_file_dialog(
-    "Load workflow",
-    "",
-    Some((&["*.json"], "Workflow JSON")),
-);
-```
-
-Doesn't touch the widget library — purely host-side. Keeps the in-app
-FileDialog widget around as a fallback for environments without zenity.
+Workspace stayed at **317 passed, 0 failed**. zenity confirmed
+present on this Linux box. Cross-platform: Win32
+`GetOpenFileNameW`, macOS `NSOpenPanel`, Linux
+`zenity`/`kdialog`/`qarma` — picked over `rfd` because rfd drags
+GTK.
 
 ### 3. TabControl not focusable
 **Symptom**: `can_focus()` returns `false`, `set_focused` is a no-op.
@@ -168,11 +163,10 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 
 ## Concrete next-session task list (priority order)
 
-1. ~~**HiDPI fonts**~~ — done (commit on this push). All px-valued
-   Theme fields scale, not just fonts.
-2. **Native file picker** (~30 min): swap rfd usage out for
-   tinyfiledialogs in `erigui-app/src/main.rs::open_save_dialog` and
-   `open_load_dialog`. Keep the in-app widget for fallback.
+1. ~~**HiDPI fonts**~~ — done. All px-valued Theme fields scale.
+2. ~~**Native file picker**~~ — done. `tinyfiledialogs` synchronous
+   `open_file_dialog` / `save_file_dialog_with_filter` in
+   `erigui-app/src/main.rs`.
 3. **ScrollBar drag** (~30 min): MouseButton+Move+Release routing in
    `list_view.rs`. Test: simulate drag, verify scroll_offset moved.
 4. **TabControl focus + kbd** (~30 min): same pattern as Slider.
@@ -180,7 +174,7 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 6. **Untested widget smoke** (~3 hours): 21 widgets × ~10 min each.
 7. **Accordion kbd** (~30 min): if there's time.
 
-Total remaining: ~5-6 hours of CPU work.
+Total remaining: ~4-5 hours of CPU work.
 
 ## Quick reference
 

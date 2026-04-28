@@ -33,6 +33,11 @@ log = { workspace = true }
 
 serde_json = "1"
 
+# Native open/save dialog. Wraps Win32 GetOpenFileNameW (Windows),
+# NSOpenPanel (macOS), and zenity/kdialog/qarma (Linux). Picked over
+# `rfd` because rfd drags a GTK runtime dep we don't want.
+tinyfiledialogs = "3"
+
 [[bin]]
 name = "erigui-app"
 path = "src/main.rs"

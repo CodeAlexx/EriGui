@@ -10,10 +10,12 @@
 //!     translates `ProgressEvent`s into widget calls (`set_node_progress`,
 //!     `set_node_image`, `clear_node_progress`, `set_node_error`). The
 //!     widget itself does not pull from the executor.
-//!   - File save/load uses the existing `FileDialog` widget, opened as a
-//!     modal overlay. We don't block the event loop — the dialog renders
-//!     each frame like any other widget; selecting a path fires our
-//!     callback and we close the dialog.
+//!   - File save/load uses the OS-native dialog (`tinyfiledialogs`) so
+//!     Windows gets `GetOpenFileNameW`, macOS gets `NSOpenPanel`, and
+//!     Linux gets `zenity`/`kdialog`. The call is synchronous — the
+//!     event loop blocks for the duration of the picker, same as every
+//!     other native app. The in-app `FileDialog` widget is still in the
+//!     library for headless/fallback environments but unused here.
 //!
 //! See `graph_translate.rs` for the `Graph` <-> `Workflow` translation
 //! and `registry_handle.rs` for the `NodeRegistry` -> `NodeRegistryHandle`
@@ -29,11 +31,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
-use erigui_core::{Color, DrawContext, Event, Point, Rect, Size, Theme, Widget};
+use erigui_core::{DrawContext, Event, Point, Rect, Size, Theme, Widget};
 use erigui_nodes::NodeRegistry;
 use erigui_rendering::{EventTranslator, Renderer};
 use erigui_runtime::{Executor, NodeId, ProgressEvent};
-use erigui_widgets::file_dialog::{FileDialog, FileDialogMode, FileFilter};
 use erigui_widgets::node_graph::{Graph, NodeGraph};
 use erigui_widgets::{Button, Label, WidgetId};
 use erigui_workflow::Workflow;
@@ -47,8 +48,6 @@ use crate::registry_handle::RegistryHandle;
 
 const TOOLBAR_HEIGHT: i32 = 56;
 const STATUS_HEIGHT: i32 = 28;
-const FILE_DIALOG_W: i32 = 720;
-const FILE_DIALOG_H: i32 = 520;
 
 /// Toolbar action requested from a button callback. Buttons can't borrow
 /// `App` mutably (FnMut + 'static), so they push intent into a shared
@@ -59,14 +58,6 @@ enum Action {
     Cancel,
     SaveDialog,
     LoadDialog,
-}
-
-/// Which file-dialog flow is active. Determines whether a chosen path is
-/// passed to `Workflow::save_to_file` or `Workflow::load_from_file`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DialogPurpose {
-    Save,
-    Load,
 }
 
 struct App {
@@ -85,12 +76,6 @@ struct App {
     save_btn: Button,
     load_btn: Button,
     status_label: Label,
-
-    // File dialog state. `Some(_)` while the modal is open.
-    file_dialog: Option<FileDialog>,
-    dialog_purpose: Option<DialogPurpose>,
-    pending_path: Rc<RefCell<Option<PathBuf>>>,
-    dialog_cancelled: Rc<RefCell<bool>>,
 
     // Layout caches.
     toolbar_rect: Rect,
@@ -151,10 +136,6 @@ impl App {
             save_btn,
             load_btn,
             status_label,
-            file_dialog: None,
-            dialog_purpose: None,
-            pending_path: Rc::new(RefCell::new(None)),
-            dialog_cancelled: Rc::new(RefCell::new(false)),
             toolbar_rect: Rect::default(),
             canvas_rect: Rect::default(),
             status_rect: Rect::default(),
@@ -205,16 +186,6 @@ impl App {
             ),
             &self.theme,
         );
-
-        // File dialog: centered over the canvas.
-        if let Some(dialog) = &mut self.file_dialog {
-            let dx = self.canvas_rect.x() + (self.canvas_rect.width() - FILE_DIALOG_W) / 2;
-            let dy = self.canvas_rect.y() + (self.canvas_rect.height() - FILE_DIALOG_H) / 2;
-            dialog.layout(
-                Rect::new(dx.max(0), dy.max(0), FILE_DIALOG_W, FILE_DIALOG_H),
-                &self.theme,
-            );
-        }
     }
 
     fn set_status(&mut self, text: impl Into<String>) {
@@ -222,25 +193,6 @@ impl App {
     }
 
     fn handle_event(&mut self, event: &Event) -> bool {
-        // Modal file dialog takes priority when open.
-        if let Some(dialog) = &mut self.file_dialog {
-            let r = dialog.handle_event(event, &self.theme);
-            // The dialog's selection / cancel callbacks fire while we're
-            // borrowing it; check the shared cells AFTER we release.
-            let consumed = r.is_consumed();
-            // Drain the cells.
-            let chosen = self.pending_path.borrow_mut().take();
-            let cancelled = std::mem::replace(&mut *self.dialog_cancelled.borrow_mut(), false);
-            if let Some(path) = chosen {
-                self.complete_dialog(path);
-            } else if cancelled {
-                self.file_dialog = None;
-                self.dialog_purpose = None;
-                self.set_status("Dialog cancelled.");
-            }
-            return consumed;
-        }
-
         // Toolbar — only react to events whose position lands in the strip.
         // (`Button` doesn't hit-test event positions itself; we route by
         // bounds so canvas events still flow to the NodeGraph.)
@@ -312,96 +264,66 @@ impl App {
     }
 
     fn open_save_dialog(&mut self) {
-        let pending = Rc::clone(&self.pending_path);
-        let cancelled = Rc::clone(&self.dialog_cancelled);
-        let dialog = FileDialog::new(WidgetId::default(), FileDialogMode::Save)
-            .with_filters(vec![
-                FileFilter::new("Workflow JSON", vec!["json"]),
-                FileFilter::new("All Files", vec!["*"]),
-            ])
-            .with_on_file_selected(move |p| {
-                *pending.borrow_mut() = Some(p.to_path_buf());
-            })
-            .with_on_cancel(move || {
-                *cancelled.borrow_mut() = true;
-            });
-        self.file_dialog = Some(dialog);
-        self.dialog_purpose = Some(DialogPurpose::Save);
-        let viewport = self.canvas_rect.size;
-        self.layout_dialog_only(viewport);
-        self.set_status("Save: choose a workflow JSON path.");
-    }
-
-    fn open_load_dialog(&mut self) {
-        let pending = Rc::clone(&self.pending_path);
-        let cancelled = Rc::clone(&self.dialog_cancelled);
-        let dialog = FileDialog::new(WidgetId::default(), FileDialogMode::Open)
-            .with_filters(vec![
-                FileFilter::new("Workflow JSON", vec!["json"]),
-                FileFilter::new("All Files", vec!["*"]),
-            ])
-            .with_on_file_selected(move |p| {
-                *pending.borrow_mut() = Some(p.to_path_buf());
-            })
-            .with_on_cancel(move || {
-                *cancelled.borrow_mut() = true;
-            });
-        self.file_dialog = Some(dialog);
-        self.dialog_purpose = Some(DialogPurpose::Load);
-        let viewport = self.canvas_rect.size;
-        self.layout_dialog_only(viewport);
-        self.set_status("Load: choose a workflow JSON file.");
-    }
-
-    fn layout_dialog_only(&mut self, _hint: Size) {
-        if let Some(dialog) = &mut self.file_dialog {
-            let dx = self.canvas_rect.x() + (self.canvas_rect.width() - FILE_DIALOG_W) / 2;
-            let dy = self.canvas_rect.y() + (self.canvas_rect.height() - FILE_DIALOG_H) / 2;
-            dialog.layout(
-                Rect::new(dx.max(0), dy.max(0), FILE_DIALOG_W, FILE_DIALOG_H),
-                &self.theme,
-            );
+        // Synchronous: blocks the event loop while the OS dialog is up.
+        // That's the same model every native app uses for File→Save.
+        let chosen = tinyfiledialogs::save_file_dialog_with_filter(
+            "Save workflow",
+            "",
+            &["*.json"],
+            "Workflow JSON",
+        );
+        match chosen {
+            Some(s) => self.do_save(PathBuf::from(s)),
+            None => self.set_status("Save cancelled."),
         }
     }
 
-    fn complete_dialog(&mut self, path: PathBuf) {
-        let purpose = self.dialog_purpose.take();
-        self.file_dialog = None;
-        match purpose {
-            Some(DialogPurpose::Save) => {
-                let wf = graph_to_workflow(&self.graph.graph);
-                match wf.save_to_file(&path) {
-                    Ok(()) => self.set_status(format!("Saved workflow to {}", path.display())),
-                    Err(e) => self.set_status(format!("Save failed: {e}")),
+    fn open_load_dialog(&mut self) {
+        let chosen = tinyfiledialogs::open_file_dialog(
+            "Load workflow",
+            "",
+            Some((&["*.json"], "Workflow JSON")),
+        );
+        match chosen {
+            Some(s) => self.do_load(PathBuf::from(s)),
+            None => self.set_status("Load cancelled."),
+        }
+    }
+
+    fn do_save(&mut self, path: PathBuf) {
+        let wf = graph_to_workflow(&self.graph.graph);
+        match wf.save_to_file(&path) {
+            Ok(()) => self.set_status(format!("Saved workflow to {}", path.display())),
+            Err(e) => self.set_status(format!("Save failed: {e}")),
+        }
+    }
+
+    fn do_load(&mut self, path: PathBuf) {
+        match Workflow::load_from_file(&path) {
+            Ok(wf) => {
+                let report = wf.resolve(&self.registry);
+                if !report.unresolved.is_empty() {
+                    log::warn!(
+                        "workflow has {} unresolved nodes (will be dropped): {:?}",
+                        report.unresolved.len(),
+                        report.unresolved
+                    );
+                }
+                let new_graph = workflow_to_graph(&wf, &self.registry);
+                let n = new_graph.nodes.len();
+                self.graph.graph = new_graph;
+                self.graph.layout(self.canvas_rect, &self.theme);
+                if report.unresolved.is_empty() {
+                    self.set_status(format!("Loaded {n} nodes from {}", path.display()));
+                } else {
+                    self.set_status(format!(
+                        "Loaded {n} nodes ({} unresolved dropped) from {}",
+                        report.unresolved.len(),
+                        path.display()
+                    ));
                 }
             }
-            Some(DialogPurpose::Load) => match Workflow::load_from_file(&path) {
-                Ok(wf) => {
-                    let report = wf.resolve(&self.registry);
-                    if !report.unresolved.is_empty() {
-                        log::warn!(
-                            "workflow has {} unresolved nodes (will be dropped): {:?}",
-                            report.unresolved.len(),
-                            report.unresolved
-                        );
-                    }
-                    let new_graph = workflow_to_graph(&wf, &self.registry);
-                    let n = new_graph.nodes.len();
-                    self.graph.graph = new_graph;
-                    self.graph.layout(self.canvas_rect, &self.theme);
-                    if report.unresolved.is_empty() {
-                        self.set_status(format!("Loaded {n} nodes from {}", path.display()));
-                    } else {
-                        self.set_status(format!(
-                            "Loaded {n} nodes ({} unresolved dropped) from {}",
-                            report.unresolved.len(),
-                            path.display()
-                        ));
-                    }
-                }
-                Err(e) => self.set_status(format!("Load failed: {e}")),
-            },
-            None => {}
+            Err(e) => self.set_status(format!("Load failed: {e}")),
         }
     }
 
@@ -541,13 +463,6 @@ impl App {
         // Toolbar buttons (drawn after the surface so they sit on top).
         for btn in [&self.queue_btn, &self.cancel_btn, &self.save_btn, &self.load_btn] {
             btn.draw(renderer, &self.theme);
-        }
-
-        // Modal file dialog (drawn last, with a translucent backdrop).
-        if let Some(dialog) = &self.file_dialog {
-            renderer.set_color(Color::rgba(0, 0, 0, 160));
-            renderer.fill_rect(self.canvas_rect);
-            dialog.draw(renderer, &self.theme);
         }
     }
 }

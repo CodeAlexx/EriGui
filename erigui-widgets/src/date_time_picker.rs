@@ -254,15 +254,10 @@ impl DateTimePicker {
             return;
         }
 
-        // Draw background
-        context.set_color(theme.colors.surface);
-        context.fill_rect(self.calendar_rect);
-
-        // Draw border
-        context.set_color(theme.colors.border);
-        context.draw_rect(self.calendar_rect);
-
-        // Draw shadow
+        // Draw shadow FIRST so it sits beneath the panel rather than on
+        // top of the border (Mojo port-paste error: shadow was previously
+        // drawn after the background+border, leaving a visible amber strip
+        // along the panel's bottom-right edge).
         context.set_color(theme.colors.shadow);
         context.fill_rect(Rect::new(
             self.calendar_rect.x() + 2,
@@ -270,6 +265,14 @@ impl DateTimePicker {
             self.calendar_rect.width(),
             self.calendar_rect.height(),
         ));
+
+        // Draw background
+        context.set_color(theme.colors.surface);
+        context.fill_rect(self.calendar_rect);
+
+        // Draw border
+        context.set_color(theme.colors.border);
+        context.draw_rect(self.calendar_rect);
 
         let padding = 10;
         let header_height = 30;

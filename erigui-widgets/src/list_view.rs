@@ -209,6 +209,40 @@ impl Widget for ListView {
             context.draw_text(&item.text, text_pos, theme.typography.font_size_base);
         }
 
+        // Vertical scrollbar — only drawn when content exceeds viewport.
+        // Track on the right edge of the bounds; thumb proportional to
+        // viewport/content ratio. Visual only — actual scrolling is
+        // wheel-driven (drag-the-thumb to scroll is a follow-up).
+        let max = self.max_scroll();
+        if max > 0 {
+            const TRACK_W: i32 = 8;
+            let track = Rect::new(
+                self.state.bounds.right() - TRACK_W,
+                self.state.bounds.y(),
+                TRACK_W,
+                self.state.bounds.height(),
+            );
+            context.set_color(theme.colors.surface_variant);
+            context.fill_rect(track);
+
+            let viewport_h = self.state.bounds.height();
+            let content_h = self.content_height();
+            let thumb_h =
+                ((viewport_h as f32 / content_h as f32) * track.height() as f32) as i32;
+            let thumb_h = thumb_h.max(20).min(track.height());
+            let max_thumb_y = track.height() - thumb_h;
+            let thumb_y = ((self.scroll_offset as f32 / max as f32)
+                * max_thumb_y as f32) as i32;
+            let thumb = Rect::new(
+                track.x() + 1,
+                track.y() + thumb_y,
+                TRACK_W - 2,
+                thumb_h,
+            );
+            context.set_color(theme.colors.border);
+            context.fill_rect(thumb);
+        }
+
         // Draw border
         context.set_color(theme.colors.border);
         context.draw_rect(self.state.bounds);

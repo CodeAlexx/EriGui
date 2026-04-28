@@ -522,7 +522,11 @@ impl Widget for TextInput {
                     return EventResult::Ignored;
                 }
                 let shift = modifiers.contains(Modifiers::SHIFT);
-                let ctrl = modifiers.contains(Modifiers::CTRL);
+                // Linux AltGr generates Ctrl+Alt; treating that as a
+                // Ctrl-shortcut press would steal AltGr-typed characters
+                // (@, €, etc.). Require Ctrl WITHOUT Alt.
+                let ctrl = modifiers.contains(Modifiers::CTRL)
+                    && !modifiers.contains(Modifiers::ALT);
                 match key {
                     Key::Backspace => {
                         // Bug ti12: if there's a selection, delete it.

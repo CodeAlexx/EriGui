@@ -2503,7 +2503,10 @@ impl NodeGraph {
             return EventResult::Ignored;
         }
         let shift = key.modifiers.contains(Modifiers::SHIFT);
-        let ctrl = key.modifiers.contains(Modifiers::CTRL);
+        // Linux AltGr emits Ctrl+Alt; require CTRL without ALT so AltGr-
+        // typed characters (@, €, etc.) aren't eaten as shortcuts.
+        let ctrl = key.modifiers.contains(Modifiers::CTRL)
+            && !key.modifiers.contains(Modifiers::ALT);
         match key.key {
             erigui_core::Key::Left => {
                 let dir = if ctrl { CursorMove::WordLeft } else { CursorMove::Left };

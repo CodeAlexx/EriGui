@@ -672,12 +672,10 @@ fn manager_remove_by_id_fires_close_callback() {
 }
 
 #[test]
-fn manager_clear_does_not_panic_and_does_not_fire_close_callback() {
-    // clear() truncates the VecDeque without going through the per-item
-    // removal path, so the on_notification_closed callback is NOT
-    // fired. Locking that in here keeps a future refactor honest --
-    // if someone changes clear() to fire callbacks, they'll have to
-    // intentionally update this test.
+fn manager_clear_fires_close_callback_per_notification() {
+    // clear() drains the queue and fires `on_notification_closed` for
+    // each notification, in queue order. Hosts using the callback for
+    // resource cleanup must not leak when the queue is cleared.
     let closed: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let cap = closed.clone();
 
@@ -689,12 +687,30 @@ fn manager_clear_does_not_panic_and_does_not_fire_close_callback() {
     m.show(Notification::new("a", "T", "M"));
     m.show(Notification::new("b", "T", "M"));
     m.clear();
-    assert!(
-        closed.borrow().is_empty(),
-        "clear() does NOT fire on_notification_closed (current contract)"
+    assert_eq!(
+        closed.borrow().as_slice(),
+        &["a".to_string(), "b".to_string()],
+        "clear() must fire callback once per notification, in queue order"
     );
-    // Calling clear twice is idempotent.
+}
+
+#[test]
+fn manager_clear_when_empty_is_noop() {
+    // Calling clear() on an empty queue must not panic and must not
+    // fire the callback.
+    let closed: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = closed.clone();
+
+    let theme = default_theme();
+    let mut m = NotificationManager::new(test_id())
+        .with_on_notification_closed(move |id| cap.borrow_mut().push(id.to_string()));
+    m.layout(Rect::new(0, 0, 800, 600), &theme);
+
     m.clear();
+    assert!(closed.borrow().is_empty(), "clear() on empty queue does nothing");
+    // Calling clear twice on an empty queue is idempotent.
+    m.clear();
+    assert!(closed.borrow().is_empty());
 }
 
 #[test]

@@ -206,7 +206,14 @@ impl NotificationManager {
     }
 
     pub fn clear(&mut self) {
-        self.notifications.clear();
+        // Drain rather than truncate so hosts that rely on the
+        // `on_notification_closed` callback for resource cleanup don't
+        // leak when the queue is cleared. Callbacks fire in queue order.
+        for removed in self.notifications.drain(..) {
+            if let Some(callback) = &mut self.on_notification_closed {
+                callback(&removed.notification.id);
+            }
+        }
     }
 
     pub fn remove(&mut self, id: &str) {

@@ -607,6 +607,89 @@ fn list_view_home_end_jump_to_bounds() {
 }
 
 #[test]
+fn list_view_mouse_wheel_scrolls() {
+    use erigui_core::{MouseWheelEvent, Point};
+    let theme = default_theme();
+    // 50 items × 24px each = 1200px content, viewport 240px = 5x bigger.
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+    assert_eq!(lv.scroll_offset(), 0);
+
+    // Scroll DOWN: delta.y is negative on most platforms.
+    let wheel_down = Event::MouseWheel(MouseWheelEvent {
+        delta: Point::new(0, -1),
+        position: Point::new(50, 50),
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&wheel_down, &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert!(
+        lv.scroll_offset() > 0,
+        "wheel down should advance scroll_offset, got {}",
+        lv.scroll_offset()
+    );
+
+    // Wheel UP brings us back.
+    let wheel_up = Event::MouseWheel(MouseWheelEvent {
+        delta: Point::new(0, 1),
+        position: Point::new(50, 50),
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&wheel_up, &theme);
+    assert_eq!(lv.scroll_offset(), 0, "wheel up should bring us back to top");
+}
+
+#[test]
+fn list_view_scroll_clamped_at_bounds() {
+    use erigui_core::{MouseWheelEvent, Point};
+    let theme = default_theme();
+    let mut lv = list_with(2); // very short list, no need to scroll
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+
+    // Wheel down a bunch — scroll_offset should stay at 0 since no overflow.
+    for _ in 0..10 {
+        let wheel = Event::MouseWheel(MouseWheelEvent {
+            delta: Point::new(0, -10),
+            position: Point::new(50, 50),
+            modifiers: Modifiers::empty(),
+        });
+        lv.handle_event(&wheel, &theme);
+    }
+    assert_eq!(
+        lv.scroll_offset(),
+        0,
+        "scroll_offset must not exceed max when content fits viewport"
+    );
+}
+
+#[test]
+fn list_view_arrow_down_auto_scrolls_to_keep_selected_visible() {
+    let theme = default_theme();
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme); // viewport shows ~10 items
+    lv.set_focused(true);
+    lv.set_selected_index(Some(0));
+    assert_eq!(lv.scroll_offset(), 0);
+
+    // Move down 20 items; selection should stay visible by auto-scrolling.
+    for _ in 0..20 {
+        let _ = lv.handle_event(
+            &Event::KeyPress(KeyPressEvent {
+                key: Key::Down,
+                modifiers: Modifiers::empty(),
+                repeat: false,
+            }),
+            &theme,
+        );
+    }
+    assert_eq!(lv.selected_item().unwrap().id, "id_20");
+    assert!(
+        lv.scroll_offset() > 0,
+        "selection past viewport should have triggered scroll"
+    );
+}
+
+#[test]
 fn list_view_keys_ignored_when_unfocused() {
     let theme = default_theme();
     let mut lv = list_with(5);

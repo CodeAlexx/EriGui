@@ -1,6 +1,6 @@
 use erigui_core::{
-    DrawContext, Event, EventResult, Key, LayoutConstraints, MouseButton, MouseButtonEvent, Point,
-    Rect, Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, LayoutConstraints, MouseButton, MouseButtonEvent,
+    MouseWheelEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -16,6 +16,10 @@ pub struct ListView {
     items: Vec<ListItem>,
     selected_index: Option<usize>,
     item_height: i32,
+    /// Vertical scroll offset in pixels. Always >= 0; clamped so the last
+    /// item never scrolls past the bottom of the viewport (unless the list
+    /// is shorter than the viewport, in which case it's pinned to 0).
+    scroll_offset: i32,
     on_selection_change: Option<Box<dyn FnMut(Option<usize>)>>,
     multi_select: bool,
 }
@@ -27,9 +31,53 @@ impl ListView {
             items: Vec::new(),
             selected_index: None,
             item_height: 24,
+            scroll_offset: 0,
             on_selection_change: None,
             multi_select: false,
         }
+    }
+
+    /// Total content height (items × item_height). May exceed bounds.height.
+    fn content_height(&self) -> i32 {
+        self.items.len() as i32 * self.item_height
+    }
+
+    /// Maximum legal `scroll_offset` value (so the last item bottom-aligns
+    /// with the viewport bottom). Returns 0 if list is shorter than viewport.
+    fn max_scroll(&self) -> i32 {
+        (self.content_height() - self.state.bounds.height()).max(0)
+    }
+
+    /// Clamp scroll_offset to [0, max_scroll].
+    fn clamp_scroll(&mut self) {
+        let max = self.max_scroll();
+        if self.scroll_offset < 0 {
+            self.scroll_offset = 0;
+        } else if self.scroll_offset > max {
+            self.scroll_offset = max;
+        }
+    }
+
+    /// Adjust scroll_offset so the selected item is fully visible.
+    fn scroll_to_selected(&mut self) {
+        let Some(i) = self.selected_index else {
+            return;
+        };
+        let item_top = i as i32 * self.item_height;
+        let item_bottom = item_top + self.item_height;
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = viewport_top + self.state.bounds.height();
+        if item_top < viewport_top {
+            self.scroll_offset = item_top;
+        } else if item_bottom > viewport_bottom {
+            self.scroll_offset = item_bottom - self.state.bounds.height();
+        }
+        self.clamp_scroll();
+    }
+
+    /// Read accessor for tests/host integration.
+    pub fn scroll_offset(&self) -> i32 {
+        self.scroll_offset
     }
 
     pub fn with_items(mut self, items: Vec<ListItem>) -> Self {
@@ -59,6 +107,7 @@ impl ListView {
     pub fn set_selected_index(&mut self, index: Option<usize>) {
         if index.map(|i| i < self.items.len()).unwrap_or(true) {
             self.selected_index = index;
+            self.scroll_to_selected();
 
             if let Some(callback) = &mut self.on_selection_change {
                 callback(self.selected_index);
@@ -73,7 +122,7 @@ impl ListView {
     fn item_rect(&self, index: usize) -> Rect {
         Rect::new(
             self.state.bounds.x(),
-            self.state.bounds.y() + (index as i32 * self.item_height),
+            self.state.bounds.y() + (index as i32 * self.item_height) - self.scroll_offset,
             self.state.bounds.width(),
             self.item_height,
         )
@@ -84,7 +133,7 @@ impl ListView {
             return None;
         }
 
-        let relative_y = position.y - self.state.bounds.y();
+        let relative_y = position.y - self.state.bounds.y() + self.scroll_offset;
         let index = (relative_y / self.item_height) as usize;
 
         if index < self.items.len() {
@@ -109,6 +158,8 @@ impl Widget for ListView {
 
     fn layout(&mut self, rect: Rect, _theme: &Theme) {
         self.state.bounds = rect;
+        // Re-clamp in case the bounds shrank below current scroll offset.
+        self.clamp_scroll();
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
@@ -181,6 +232,20 @@ impl Widget for ListView {
                     self.set_selected_index(Some(index));
                 }
                 self.state.focused = true;
+                return EventResult::Consumed;
+            }
+        }
+
+        // Mouse-wheel scroll. Most-common ListView frustration: long
+        // file lists / dropdowns that simply truncate beyond the viewport.
+        // Scroll by ~3 items per wheel tick, matching desktop convention.
+        if let Event::MouseWheel(MouseWheelEvent { position, delta, .. }) = event {
+            if self.state.bounds.contains(*position) {
+                // Negative dy is scroll-down (content moves up, offset increases).
+                let step = self.item_height * 3;
+                let pixels = (-delta.y).saturating_mul(step);
+                self.scroll_offset = self.scroll_offset.saturating_add(pixels);
+                self.clamp_scroll();
                 return EventResult::Consumed;
             }
         }

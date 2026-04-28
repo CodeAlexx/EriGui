@@ -1,3 +1,23 @@
+//! Accessibility (a11y) state — process-singleton by design.
+//!
+//! `AccessibilityManager` is a `OnceLock<Mutex<...>>` global. This is
+//! intentional and **not** a Mojo-port artifact slated for removal.
+//! OS accessibility APIs (Linux AT-SPI bus, Windows UIAutomation,
+//! macOS NSAccessibility) all expose a single registration endpoint
+//! per process — every widget-tree's a11y nodes ultimately need to
+//! converge on one bridge object. A host-owned manager would force
+//! the OS bridge layer to walk back through some root handle every
+//! call, which doesn't match how the platform APIs are shaped.
+//!
+//! The current implementation is a stub: it stores nodes and
+//! announcements in memory but never publishes them to any OS bus.
+//! That bridge work is deferred until cross-platform support lands
+//! (Wayland is current, Windows + macOS are on the roadmap). When a
+//! real bridge arrives, the public API here (`register_node`,
+//! `update_node_state`, `announce`) becomes the contract the bridge
+//! reads from. Don't add new in-process consumers that work around
+//! the manager — they'll bypass the bridge once it exists.
+
 use erigui_core::{Rect, WidgetId};
 use std::collections::HashMap;
 

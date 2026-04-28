@@ -1,3 +1,25 @@
+//! Keyboard navigation registry — process-singleton by design.
+//!
+//! `KeyboardNavigationManager` is a `OnceLock<Mutex<...>>` global.
+//! Intentional; not a Mojo-port artifact. Tab traversal across the
+//! whole widget tree (including widgets in different host crates,
+//! plug-ins, and embedded subtrees) converges on a single
+//! registration point so that **Tab** / **Shift+Tab** can walk the
+//! union of all currently-mounted focusables in declaration order
+//! regardless of which crate owns each one. A host-owned navigator
+//! would force every embedder (the app, every plug-in, every
+//! sub-widget tree) to re-register their focusables at every nesting
+//! boundary — fragile and easy to forget.
+//!
+//! Per-widget keyboard handlers (Ctrl+Tab inside TabControl,
+//! Up/Down inside ListView, etc.) belong on the widget itself and
+//! do **not** go through this manager — they only handle keys
+//! within the focused widget's domain. This manager is purely the
+//! Tab-cycle layer above all widgets.
+//!
+//! Cross-platform note: Windows / macOS / GTK / Cocoa all assume a
+//! single per-process focus chain; this matches.
+
 use erigui_core::{Key, Point, Rect, WidgetId};
 use std::collections::HashMap;
 

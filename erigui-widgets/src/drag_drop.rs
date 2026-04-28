@@ -1,3 +1,22 @@
+//! Drag-and-drop state — process-singleton by design.
+//!
+//! `DragDropManager` is a `OnceLock<Mutex<...>>` global. Intentional;
+//! not a Mojo-port artifact. There is one drag in flight at a time
+//! per process, and OS DnD bridges (X11/Wayland selection sources,
+//! Cocoa drag pasteboards, Win32 OLE `IDropSource`/`IDropTarget`)
+//! all expose a single registration endpoint per process. Host-
+//! owned drag state would force every embedder to thread the same
+//! handle through every nested widget tree.
+//!
+//! The current implementation is in-process only — DragData lives
+//! in a `Box<dyn Any + Send + Sync>` and never crosses process
+//! boundaries. Real OS DnD (drag from EriGui to the file manager,
+//! drop a file from the OS into a widget) is deferred until
+//! cross-platform support lands. When a bridge arrives, the public
+//! API here (`start_drag`, `register_drop_target`, `handle_drop`)
+//! becomes the contract the bridge translates to / from. Don't
+//! work around the manager.
+
 use erigui_core::{Point, Rect, WidgetId};
 use std::any::Any;
 use std::collections::HashMap;

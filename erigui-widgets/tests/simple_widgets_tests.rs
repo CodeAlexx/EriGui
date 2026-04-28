@@ -12,7 +12,10 @@ use erigui_core::{
     LayoutMode, Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point,
     Rect, ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
 };
-use erigui_widgets::{Container, Label, TextAlign};
+use erigui_widgets::{
+    Container, Label, SeparatorStyle, StatusBar, StatusPanel, StatusPanelWidth, TextAlign,
+    TextAlignment,
+};
 use slotmap::SlotMap;
 
 // Helper-functions copied verbatim from widget_tests.rs so this file is
@@ -388,6 +391,204 @@ fn container_set_focused_is_a_no_op() {
     let mut c = Container::new(test_id());
     c.set_focused(true);
     assert!(!c.is_focused());
+}
+
+// ============================================================================
+// StatusBar
+// ============================================================================
+//
+// StatusBar exposes mutators (add_panel, set_panel_text, clear_panels) but
+// no panel-count or panel-content getters. So external assertions are
+// limited to: StatusPanel public-field round-trip, StatusBar widget-trait
+// surface, and "the mutators don't panic."
+
+#[test]
+fn status_panel_new_defaults() {
+    let p = StatusPanel::new("hello");
+    assert_eq!(p.text, "hello");
+    assert!(matches!(p.width, StatusPanelWidth::Spring));
+    assert!(matches!(p.alignment, TextAlignment::Left));
+}
+
+#[test]
+fn status_panel_with_fixed_width_round_trips() {
+    let p = StatusPanel::new("x").with_fixed_width(120);
+    match p.width {
+        StatusPanelWidth::Fixed(w) => assert_eq!(w, 120),
+        other => panic!("expected Fixed(120), got {:?}", other),
+    }
+}
+
+#[test]
+fn status_panel_with_content_width_round_trips() {
+    let p = StatusPanel::new("x").with_content_width();
+    assert!(matches!(p.width, StatusPanelWidth::Content));
+}
+
+#[test]
+fn status_panel_with_spring_width_round_trips() {
+    // Spring is the default but `with_spring_width` should still set it
+    // explicitly when chained after another width.
+    let p = StatusPanel::new("x").with_fixed_width(50).with_spring_width();
+    assert!(matches!(p.width, StatusPanelWidth::Spring));
+}
+
+#[test]
+fn status_panel_with_alignment_round_trips() {
+    let p_l = StatusPanel::new("x").with_alignment(TextAlignment::Left);
+    assert!(matches!(p_l.alignment, TextAlignment::Left));
+    let p_c = StatusPanel::new("x").with_alignment(TextAlignment::Center);
+    assert!(matches!(p_c.alignment, TextAlignment::Center));
+    let p_r = StatusPanel::new("x").with_alignment(TextAlignment::Right);
+    assert!(matches!(p_r.alignment, TextAlignment::Right));
+}
+
+#[test]
+fn status_bar_creation_defaults() {
+    let sb = StatusBar::new(test_id());
+    assert!(sb.is_visible());
+    assert!(sb.is_enabled());
+    assert!(!sb.can_focus(), "StatusBar does not participate in focus");
+    assert!(!sb.is_focused());
+}
+
+#[test]
+fn status_bar_with_separator_style_does_not_panic() {
+    // No public getter -- builder smoke + measure to make sure subsequent
+    // ops still work.
+    let theme = default_theme();
+    for style in [
+        SeparatorStyle::None,
+        SeparatorStyle::Line,
+        SeparatorStyle::Raised,
+        SeparatorStyle::Sunken,
+    ] {
+        let sb = StatusBar::new(test_id()).with_separator_style(style);
+        let size = sb.measure(&LayoutConstraints::UNBOUNDED, &theme);
+        assert!(size.height > 0, "StatusBar height should be positive");
+    }
+}
+
+#[test]
+fn status_bar_layout_sets_bounds() {
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id());
+    sb.layout(Rect::new(0, 480, 800, 24), &theme);
+    let b = sb.bounds();
+    assert_eq!(b.x(), 0);
+    assert_eq!(b.y(), 480);
+    assert_eq!(b.width(), 800);
+    assert_eq!(b.height(), 24);
+}
+
+#[test]
+fn status_bar_measure_default_size() {
+    let sb = StatusBar::new(test_id());
+    let theme = default_theme();
+    let size = sb.measure(&LayoutConstraints::UNBOUNDED, &theme);
+    // measure() returns Size::new(100, self.height) where height defaults to 24.
+    assert_eq!(size.width, 100);
+    assert_eq!(size.height, 24);
+}
+
+#[test]
+fn status_bar_add_panel_does_not_panic() {
+    // No public panel-count getter, so we can only verify the call runs and
+    // that subsequent operations (layout, measure) still succeed.
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id());
+    sb.add_panel(StatusPanel::new("Ready"));
+    sb.add_panel(StatusPanel::new("Ln 1, Col 1").with_fixed_width(120));
+    sb.add_panel(StatusPanel::new("UTF-8").with_content_width());
+    sb.layout(Rect::new(0, 0, 800, 24), &theme);
+    let _ = sb.measure(&LayoutConstraints::UNBOUNDED, &theme);
+}
+
+#[test]
+fn status_bar_set_panel_text_in_range() {
+    // No getter for panel text either, but exercise the mutator and confirm
+    // it doesn't panic when given a valid index.
+    let mut sb = StatusBar::new(test_id());
+    sb.add_panel(StatusPanel::new("initial"));
+    sb.set_panel_text(0, "updated");
+    sb.set_panel_text(0, String::from("updated again"));
+}
+
+#[test]
+fn status_bar_set_panel_text_out_of_range_does_not_panic() {
+    // The implementation uses .get_mut(index) -- out-of-range is a no-op.
+    let mut sb = StatusBar::new(test_id());
+    sb.add_panel(StatusPanel::new("only"));
+    // Index 99 is well past the end; must not panic.
+    sb.set_panel_text(99, "ignored");
+}
+
+#[test]
+fn status_bar_set_panel_text_on_empty_does_not_panic() {
+    let mut sb = StatusBar::new(test_id());
+    sb.set_panel_text(0, "ignored");
+}
+
+#[test]
+fn status_bar_clear_panels_does_not_panic() {
+    let mut sb = StatusBar::new(test_id());
+    sb.add_panel(StatusPanel::new("a"));
+    sb.add_panel(StatusPanel::new("b"));
+    sb.clear_panels();
+    // Clearing twice is also fine.
+    sb.clear_panels();
+}
+
+#[test]
+fn status_bar_visibility_and_enabled_round_trip() {
+    let mut sb = StatusBar::new(test_id());
+    sb.set_visible(false);
+    assert!(!sb.is_visible());
+    sb.set_enabled(false);
+    assert!(!sb.is_enabled());
+}
+
+#[test]
+fn status_bar_set_focused_is_a_no_op() {
+    let mut sb = StatusBar::new(test_id());
+    sb.set_focused(true);
+    assert!(!sb.is_focused());
+}
+
+#[test]
+fn status_bar_ignores_all_events() {
+    let theme = default_theme();
+    let mut sb = StatusBar::new(test_id());
+    sb.add_panel(StatusPanel::new("status"));
+    sb.layout(Rect::new(0, 0, 200, 24), &theme);
+
+    let events = [
+        Event::MouseMove(MouseMoveEvent {
+            position: Point::new(10, 10),
+            delta: Point::new(0, 0),
+            modifiers: Modifiers::empty(),
+        }),
+        Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(10, 10),
+            pressed: true,
+            modifiers: Modifiers::empty(),
+        }),
+        Event::KeyPress(KeyPressEvent {
+            key: Key::Enter,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        Event::Update,
+    ];
+    for ev in &events {
+        assert_eq!(
+            sb.handle_event(ev, &theme),
+            EventResult::Ignored,
+            "StatusBar must ignore event {:?}",
+            ev
+        );
+    }
 }
 
 #[test]

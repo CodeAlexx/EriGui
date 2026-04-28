@@ -2162,3 +2162,62 @@ fn dtp_calendar_click_updates_datetime() {
     // Time component preserved.
     assert_eq!(after.time(), NaiveTime::from_hms_opt(12, 0, 0).unwrap());
 }
+
+#[test]
+fn dtp_click_self_focuses_for_typing() {
+    // The picker's KeyPress/TextInput arms are gated on `state.focused`. A
+    // real-world user clicks the picker (trigger or a time field) and then
+    // types — typing must mutate state without the host having to also call
+    // `set_focused(true)` separately. This test exercises the full chain:
+    // click trigger → state.focused=true (popups also opened in DateTime
+    // mode) → click hour input → editing_hour=true → Backspace mutates
+    // hour_input. If the click handler ever stops self-focusing, the
+    // Backspace would be dropped by the focus gate and hour_input would
+    // not change.
+    let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let mut p = dtp_with_value(dt);
+    p.layout(Rect::new(0, 0, 240, 30), &theme());
+    assert!(!p.is_focused(), "starts unfocused");
+
+    // Click the trigger button (calendar_button bounds = right 30px of the
+    // 240-wide picker, so x in 210..240). In DateTime mode this opens both
+    // popups. Self-focus must fire because the click is inside state.bounds.
+    let _ = p.handle_event(&mouse_press(220, 15), &theme());
+    assert!(
+        p.is_focused(),
+        "click on the trigger must self-focus the picker"
+    );
+    assert!(
+        p.show_time_picker_for_test(),
+        "DateTime mode trigger click should open the time picker"
+    );
+
+    // Click the hour input. Default TimeFormat is H24, so time_picker_height
+    // = 80. time_picker_rect for DateTime mode at layout (0,0,240,30) =
+    // (250+10, 32, 200, 80) = (260, 32, 200, 80). Center = (360, 72).
+    // Hour rect = (360 - 60 - 10, 72 - 15, 60, 30) = (290, 57, 60, 30).
+    // Click center = (320, 72).
+    let _ = p.handle_event(&mouse_press(320, 72), &theme());
+    assert!(
+        p.editing_hour_for_test(),
+        "click on hour input must set editing_hour=true"
+    );
+    assert!(
+        p.is_focused(),
+        "click stays focused after entering hour edit"
+    );
+
+    // hour_input begins as "10" (length 2). Backspace through the focus-gated
+    // KeyPress arm must drop a digit — proving (click → focused → key →
+    // mutation) end-to-end without anyone calling set_focused() externally.
+    assert_eq!(p.hour_input_for_test(), "10");
+    let _ = p.handle_event(&key_press(Key::Backspace, Modifiers::empty()), &theme());
+    assert_eq!(
+        p.hour_input_for_test(),
+        "1",
+        "Backspace must mutate hour_input through the click-self-focus path"
+    );
+}

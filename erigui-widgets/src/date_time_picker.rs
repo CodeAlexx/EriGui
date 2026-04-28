@@ -909,6 +909,22 @@ impl Widget for DateTimePicker {
                 pressed: true,
                 ..
             }) => {
+                // Self-focus on click. The picker's KeyPress and TextInput
+                // arms are gated on `self.state.focused` to avoid stealing
+                // sibling widget input app-wide; without this complementary
+                // self-focus a real-world user clicking the trigger or a
+                // time field would have their subsequent typing silently
+                // dropped because nothing else sets `state.focused`.
+                // Mirrors Button's self-focus at button.rs:310 — any click
+                // landing on the picker (trigger/input region, open
+                // calendar popup, or open time picker popup) takes focus.
+                if self.state.bounds.contains(*position)
+                    || (self.show_calendar && self.calendar_rect.contains(*position))
+                    || (self.show_time_picker && self.time_picker_rect.contains(*position))
+                {
+                    self.state.focused = true;
+                }
+
                 // Check button click
                 if self.calendar_button.bounds().contains(*position) {
                     match self.mode {

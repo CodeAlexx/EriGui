@@ -1,7 +1,7 @@
 use crate::{Button, Icon, TextInput};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use erigui_core::{
-    DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, MouseButton,
+    DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, Modifiers, MouseButton,
     MouseButtonEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
@@ -907,7 +907,7 @@ impl Widget for DateTimePicker {
                     return EventResult::Consumed;
                 }
             }
-            Event::KeyPress(KeyPressEvent { key, .. }) => {
+            Event::KeyPress(KeyPressEvent { key, modifiers, .. }) => {
                 // Same focus gate as Event::TextInput above: don't steal key
                 // events app-wide just because the user once clicked into the
                 // hour/minute field.
@@ -938,6 +938,15 @@ impl Widget for DateTimePicker {
                             return EventResult::Consumed;
                         }
                         Key::Tab => {
+                            // Plain Tab is reserved for app-level focus
+                            // traversal — let it fall through to Ignored so
+                            // the host can move focus elsewhere. Only
+                            // Ctrl+Tab cycles within the picker between hour
+                            // and minute fields. Mirrors text_area.rs's
+                            // Tab handling at lines 1245-1252.
+                            if !modifiers.contains(Modifiers::CTRL) {
+                                return EventResult::Ignored;
+                            }
                             if self.editing_hour {
                                 self.editing_hour = false;
                                 self.editing_minute = true;

@@ -851,6 +851,27 @@ fn bug_ta13_multibyte_selection_boundary_aligned() {
     );
 }
 
+// Bug ta_get_selected_text: `get_selected_text` byte-sliced character columns
+// (text_area.rs:270/273/282), so any multibyte selection (CJK, accented,
+// emoji) panicked on a non-char-boundary slice or returned garbage. Fixed by
+// routing through char_to_byte_index. This test selects "档案 hello" with
+// Shift+End and asserts the returned string equals the visible characters.
+#[test]
+fn bug_ta_get_selected_text_utf8_safe() {
+    let mut area = TextArea::new(id()).with_text("档案 hello");
+    area.layout(Rect::new(0, 0, 400, 200), &theme());
+    area.set_focused(true);
+    let _ = area.handle_event(&key_press(Key::Home, Modifiers::empty()), &theme());
+    let _ = area.handle_event(&key_press(Key::End, Modifiers::SHIFT), &theme());
+    let selected = area
+        .get_selected_text()
+        .expect("Shift+End must produce a selection");
+    assert_eq!(
+        selected, "档案 hello",
+        "get_selected_text must slice on character boundaries, not byte boundaries"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3: search_box.rs bugs
 // ---------------------------------------------------------------------------

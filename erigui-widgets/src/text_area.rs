@@ -267,10 +267,20 @@ impl TextArea {
             let (start_line, start_col, end_line, end_col) = sel.normalize();
 
             if start_line == end_line {
-                Some(self.lines[start_line][start_col..end_col].to_string())
+                // start_col / end_col are CHARACTER columns, but Rust string
+                // slicing is by BYTE index. Route through char_to_byte_index
+                // so multi-byte selections (CJK, accented, emoji) don't panic
+                // or splice garbage. Mirrors `delete_selection` (lines
+                // 472-491).
+                let line = &self.lines[start_line];
+                let start_byte = Self::char_to_byte_index(line, start_col);
+                let end_byte = Self::char_to_byte_index(line, end_col);
+                Some(line[start_byte..end_byte].to_string())
             } else {
                 let mut result = String::new();
-                result.push_str(&self.lines[start_line][start_col..]);
+                let first = &self.lines[start_line];
+                let start_byte = Self::char_to_byte_index(first, start_col);
+                result.push_str(&first[start_byte..]);
 
                 for line in (start_line + 1)..end_line {
                     result.push('\n');
@@ -279,7 +289,9 @@ impl TextArea {
 
                 if end_line < self.lines.len() {
                     result.push('\n');
-                    result.push_str(&self.lines[end_line][..end_col]);
+                    let last = &self.lines[end_line];
+                    let end_byte = Self::char_to_byte_index(last, end_col);
+                    result.push_str(&last[..end_byte]);
                 }
 
                 Some(result)

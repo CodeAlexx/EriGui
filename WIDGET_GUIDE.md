@@ -1127,31 +1127,27 @@ let announcements = a11y_manager.get_announcements();
 
 ### Tooltip System
 
-Contextual tooltips for widgets.
+Contextual tooltips. Each widget owns its own `TooltipState`; there is
+no global manager. Hover-to-show + mouse-leave-hide are handled by the
+widget's own `handle_event`/`draw` pass.
 
 ```rust
-// Simple tooltip
-button.set_tooltip("Click to save the document");
+// Simple tooltip on a Button (default 500ms delay, auto-positioned).
+let btn = Button::new(WidgetId::default(), "Save")
+    .with_tooltip("Click to save the document");
 
-// Rich tooltip
-let rich_tooltip = Tooltip::new(WidgetId::default())
-    .with_title("Keyboard Shortcuts")
-    .with_content("Ctrl+S - Save\nCtrl+O - Open\nCtrl+N - New")
-    .with_delay(500); // ms
-
-widget.set_tooltip_widget(rich_tooltip);
-
-// Global tooltip manager
-let tooltip_manager = tooltip_manager();
-tooltip_manager.show_tooltip(
-    widget.id(),
-    "Custom tooltip text",
-    Point::new(100, 100)
-);
-
-// Tooltip positioning
-button.set_tooltip_position(TooltipPosition::Right);
+// Custom delay or position: build a TooltipState explicitly and hand
+// it in via `with_tooltip_state`.
+use erigui_widgets::tooltip::{TooltipState, TooltipPosition};
+let ts = TooltipState::new("Keyboard: Ctrl+S")
+    .with_delay_ms(250)
+    .with_position(TooltipPosition::Right);
+let btn = Button::new(WidgetId::default(), "Save").with_tooltip_state(ts);
 ```
+
+Other widgets adopt the same pattern by composing a
+`Option<TooltipState>` field and calling `update_on_event` /
+`draw(ctx, theme, anchor)` from their own event/draw methods.
 
 ---
 

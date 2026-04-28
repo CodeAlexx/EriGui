@@ -11,7 +11,15 @@ fn char_count(s: &str) -> i32 {
     s.chars().count() as i32
 }
 
-#[derive(Clone)]
+/// A row in a `MenuBar` dropdown.
+///
+/// `on_click` is `Option<Box<dyn FnMut()>>` (matches the FnMut convergence
+/// done in commit 9624253 for the rest of the widget callbacks). A bare
+/// `fn()` would block hosts from capturing &mut state in the click handler,
+/// which is the dominant real-world use of menu callbacks.
+///
+/// `Clone` is intentionally NOT derived: `Box<dyn FnMut()>` is not Clone.
+/// No production code clones MenuItem; build them fresh per-use instead.
 pub struct MenuItem {
     pub text: String,
     pub shortcut: String,
@@ -19,7 +27,7 @@ pub struct MenuItem {
     pub is_separator: bool,
     pub submenu_items: Vec<MenuItem>,
     pub data: i32,
-    pub on_click: Option<fn()>,
+    pub on_click: Option<Box<dyn FnMut()>>,
 }
 
 impl MenuItem {
@@ -45,8 +53,11 @@ impl MenuItem {
         self
     }
 
-    pub fn with_on_click(mut self, handler: fn()) -> Self {
-        self.on_click = Some(handler);
+    pub fn with_on_click<F>(mut self, handler: F) -> Self
+    where
+        F: FnMut() + 'static,
+    {
+        self.on_click = Some(Box::new(handler));
         self
     }
 
@@ -632,19 +643,31 @@ impl Widget for MenuBar {
                         let dropdown_rect = self.get_dropdown_rect(self.active_menu);
                         let dropdown_item = self.dropdown_item_from_point(point, self.active_menu);
                         if dropdown_item >= 0 {
-                            let item = &self.menu_items[self.active_menu as usize].submenu_items
-                                [dropdown_item as usize];
-                            if item.is_separator {
+                            // Take an immutable borrow first to gate
+                            // separator/disabled, then re-acquire a mutable
+                            // borrow to fire the FnMut callback. The
+                            // shape mirrors dialog.rs's call site after the
+                            // FnMut convergence (commit 9624253).
+                            let (is_separator, is_enabled) = {
+                                let item = &self.menu_items[self.active_menu as usize]
+                                    .submenu_items[dropdown_item as usize];
+                                (item.is_separator, item.enabled)
+                            };
+                            if is_separator {
                                 // Bug m15: clicks on separators are
                                 // swallowed but the dropdown stays open.
                                 return EventResult::Consumed;
                             }
-                            if !item.enabled {
+                            if !is_enabled {
                                 // Bug m14: clicks on disabled items are
                                 // swallowed but dropdown stays open.
                                 return EventResult::Consumed;
                             }
-                            if let Some(handler) = item.on_click {
+                            if let Some(handler) = &mut self.menu_items
+                                [self.active_menu as usize]
+                                .submenu_items[dropdown_item as usize]
+                                .on_click
+                            {
                                 handler();
                             }
                             self.close_dropdown_internal();
@@ -731,10 +754,20 @@ impl Widget for MenuBar {
                         }
                         Key::Enter => {
                             if self.dropdown_hover >= 0 {
-                                let item = &self.menu_items[self.active_menu as usize]
-                                    .submenu_items[self.dropdown_hover as usize];
-                                if item.enabled && !item.is_separator {
-                                    if let Some(handler) = item.on_click {
+                                // Same borrow split as the click path:
+                                // copy the boolean gates out, then
+                                // re-acquire mutably for the FnMut handler.
+                                let (is_separator, is_enabled) = {
+                                    let item = &self.menu_items[self.active_menu as usize]
+                                        .submenu_items[self.dropdown_hover as usize];
+                                    (item.is_separator, item.enabled)
+                                };
+                                if is_enabled && !is_separator {
+                                    if let Some(handler) = &mut self.menu_items
+                                        [self.active_menu as usize]
+                                        .submenu_items[self.dropdown_hover as usize]
+                                        .on_click
+                                    {
                                         handler();
                                     }
                                     self.close_dropdown_internal();

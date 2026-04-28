@@ -1895,6 +1895,34 @@ fn checkbox_tooltip_hides_on_mouse_press() {
 }
 
 #[test]
+fn menu_item_callback_can_capture_mut_state() {
+    // MenuItem.on_click was Option<fn()> (bare function pointer with no
+    // captured environment). Hosts that need to mutate state on click had
+    // no way to express that. After the FnMut conversion, a closure
+    // capturing &mut state via interior mutability compiles, registers,
+    // and fires. Mirror of the FnMut-sweep test pattern from commit
+    // 9624253.
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let counter = Rc::new(RefCell::new(0u32));
+    let counter2 = Rc::clone(&counter);
+    let mut item = MenuItem::new("Increment").with_on_click(move || {
+        *counter2.borrow_mut() += 1;
+    });
+    // Fire the callback twice.
+    if let Some(h) = &mut item.on_click {
+        h();
+        h();
+    }
+    assert_eq!(
+        *counter.borrow(),
+        2,
+        "FnMut closure must be callable multiple times and mutate captured state"
+    );
+}
+
+#[test]
 fn toolbar_button_tooltip_hides_on_mouse_leave() {
     let theme = default_theme();
     let mut tb = Toolbar::new(test_id())

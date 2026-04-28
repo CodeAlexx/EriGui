@@ -589,6 +589,313 @@ fn tree_view_set_bounds_round_trips() {
 }
 
 // ============================================================================
+// TreeView -- keyboard navigation
+// ============================================================================
+//
+// TreeView's keyboard handler is gated on `self.state.focused`. Without
+// focus it returns Ignored so siblings (e.g. a text input nested in a
+// tree row) keep their keys. With focus, Up/Down/Home/End traverse the
+// visible (depth-first, expanded-only) order; Left collapses or
+// ascends to parent; Right expands or descends to first child;
+// Enter/Space re-fire the selection callback as an "activate" gesture.
+
+fn key_press(key: Key) -> Event {
+    Event::KeyPress(KeyPressEvent {
+        key,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    })
+}
+
+fn make_kbd_tree() -> TreeView {
+    // Build a fixed tree shape used across the kbd-nav tests:
+    //   root_a (expanded)
+    //     a_child_1 (collapsed leaf)
+    //     a_child_2 (expanded)
+    //       a_grandchild_1
+    //   root_b (collapsed)
+    //     b_child_1 (HIDDEN -- root_b is collapsed)
+    //   root_c (leaf)
+    let mut a_child_2 = TreeNode::new("a_child_2".to_string(), "A.2".to_string());
+    a_child_2.expanded = true;
+    a_child_2.add_child(TreeNode::new(
+        "a_grandchild_1".to_string(),
+        "A.2.1".to_string(),
+    ));
+
+    let mut root_a = TreeNode::new("root_a".to_string(), "A".to_string());
+    root_a.expanded = true;
+    root_a.add_child(TreeNode::new("a_child_1".to_string(), "A.1".to_string()));
+    root_a.add_child(a_child_2);
+
+    let mut root_b = TreeNode::new("root_b".to_string(), "B".to_string());
+    // root_b stays collapsed; its child is not visible.
+    root_b.add_child(TreeNode::new("b_child_1".to_string(), "B.1".to_string()));
+
+    let root_c = TreeNode::new("root_c".to_string(), "C".to_string());
+
+    let mut tv = TreeView::new(test_id());
+    tv.add_root_node(root_a);
+    tv.add_root_node(root_b);
+    tv.add_root_node(root_c);
+    tv
+}
+
+#[test]
+fn tree_view_down_arrow_advances_visible_selection_when_focused() {
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // No prior selection -> first Down lands on the first visible node.
+    let r1 = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(r1, EventResult::Consumed);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+
+    // Subsequent Downs walk the visible-DFS order.
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("a_child_1"));
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("a_child_2"));
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("a_grandchild_1"));
+}
+
+#[test]
+fn tree_view_up_arrow_clamps_at_first() {
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // Land on root_a, then Up should clamp at root_a (first visible).
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+    let r = tv.handle_event(&key_press(Key::Up), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+}
+
+#[test]
+fn tree_view_down_arrow_skips_collapsed_descendants() {
+    // root_b is collapsed; its child "b_child_1" must NOT appear in the
+    // visible-DFS order. From "a_grandchild_1", Down should land on
+    // "root_b" (next visible root), then Down again on "root_c".
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // Walk to a_grandchild_1.
+    for _ in 0..4 {
+        let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    }
+    assert_eq!(tv.selected_id().as_deref(), Some("a_grandchild_1"));
+
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(
+        tv.selected_id().as_deref(),
+        Some("root_b"),
+        "collapsed root_b's child must be skipped"
+    );
+
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_c"));
+}
+
+#[test]
+fn tree_view_right_arrow_expands_collapsed_parent() {
+    // Select root_b (collapsed), Right -> expand. Selection stays on
+    // root_b but its children become visible.
+    let expand_log: Rc<RefCell<Vec<(String, bool)>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = expand_log.clone();
+    let theme = default_theme();
+    let mut tv = make_kbd_tree().with_on_expand(move |id, expanded| {
+        cap.borrow_mut().push((id.to_string(), expanded));
+    });
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // Walk to root_b.
+    for _ in 0..5 {
+        let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    }
+    assert_eq!(tv.selected_id().as_deref(), Some("root_b"));
+
+    let r = tv.handle_event(&key_press(Key::Right), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(
+        expand_log.borrow().as_slice(),
+        &[("root_b".to_string(), true)],
+        "Right on collapsed parent fires on_expand(_, true)"
+    );
+    // Selection unchanged; node is now expanded -> Down reveals child.
+    assert_eq!(tv.selected_id().as_deref(), Some("root_b"));
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("b_child_1"));
+}
+
+#[test]
+fn tree_view_right_arrow_descends_into_expanded_parent() {
+    // root_a is already expanded; Right from root_a should move
+    // selection to first child a_child_1 (NOT toggle expand).
+    let expand_log: Rc<RefCell<Vec<(String, bool)>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = expand_log.clone();
+    let theme = default_theme();
+    let mut tv = make_kbd_tree().with_on_expand(move |id, expanded| {
+        cap.borrow_mut().push((id.to_string(), expanded));
+    });
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+
+    let _ = tv.handle_event(&key_press(Key::Right), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("a_child_1"));
+    assert!(
+        expand_log.borrow().is_empty(),
+        "Right on already-expanded parent must NOT fire on_expand"
+    );
+}
+
+#[test]
+fn tree_view_left_arrow_collapses_expanded_parent() {
+    let expand_log: Rc<RefCell<Vec<(String, bool)>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = expand_log.clone();
+    let theme = default_theme();
+    let mut tv = make_kbd_tree().with_on_expand(move |id, expanded| {
+        cap.borrow_mut().push((id.to_string(), expanded));
+    });
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+
+    let r = tv.handle_event(&key_press(Key::Left), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(
+        expand_log.borrow().as_slice(),
+        &[("root_a".to_string(), false)],
+        "Left on expanded parent fires on_expand(_, false)"
+    );
+    // After collapse, Down should now skip the descendants and land on
+    // root_b directly.
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_b"));
+}
+
+#[test]
+fn tree_view_left_arrow_ascends_to_parent_when_already_collapsed() {
+    // From a_child_1 (a leaf), Left should NOT toggle expand (it has
+    // no children) and should move selection to its parent root_a.
+    let expand_log: Rc<RefCell<Vec<(String, bool)>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = expand_log.clone();
+    let theme = default_theme();
+    let mut tv = make_kbd_tree().with_on_expand(move |id, expanded| {
+        cap.borrow_mut().push((id.to_string(), expanded));
+    });
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // root_a -> a_child_1.
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("a_child_1"));
+
+    let _ = tv.handle_event(&key_press(Key::Left), &theme);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+    assert!(
+        expand_log.borrow().is_empty(),
+        "Left on a leaf must not fire on_expand"
+    );
+}
+
+#[test]
+fn tree_view_home_jumps_to_first() {
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    // Walk a few steps in.
+    for _ in 0..3 {
+        let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    }
+    assert_ne!(tv.selected_id().as_deref(), Some("root_a"));
+
+    let r = tv.handle_event(&key_press(Key::Home), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_a"));
+}
+
+#[test]
+fn tree_view_end_jumps_to_last_visible() {
+    // Last visible in the fixed tree is root_c.
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    let r = tv.handle_event(&key_press(Key::End), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(tv.selected_id().as_deref(), Some("root_c"));
+}
+
+#[test]
+fn tree_view_enter_fires_selection_callback() {
+    // Enter / Space "activate" the selected node by re-firing the
+    // selection callback. The arrow-key navigation already fires the
+    // callback once when changing selection, so an Enter on a stable
+    // selection produces another callback invocation.
+    let log: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = log.clone();
+    let theme = default_theme();
+    let mut tv = make_kbd_tree()
+        .with_on_selection_change(move |id| cap.borrow_mut().push(id.to_string()));
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    tv.set_focused(true);
+
+    let _ = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(log.borrow().as_slice(), &["root_a".to_string()]);
+
+    let r = tv.handle_event(&key_press(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(
+        log.borrow().as_slice(),
+        &["root_a".to_string(), "root_a".to_string()],
+        "Enter re-fires selection callback for the current node"
+    );
+
+    let r2 = tv.handle_event(&key_press(Key::Space), &theme);
+    assert_eq!(r2, EventResult::Consumed);
+    assert_eq!(log.borrow().len(), 3, "Space behaves like Enter");
+}
+
+#[test]
+fn tree_view_keys_ignored_when_unfocused() {
+    // Without focus the kbd handler must return Ignored so sibling
+    // widgets keep their keys. Selection must NOT change.
+    let theme = default_theme();
+    let mut tv = make_kbd_tree();
+    tv.layout(Rect::new(0, 0, 200, 400), &theme);
+    // tv is NOT focused.
+    assert!(!tv.is_focused());
+
+    let before = tv.selected_id();
+    let r = tv.handle_event(&key_press(Key::Down), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(tv.selected_id(), before, "selection unchanged when unfocused");
+
+    // Same for Home/End/Enter.
+    assert_eq!(tv.handle_event(&key_press(Key::Home), &theme), EventResult::Ignored);
+    assert_eq!(tv.handle_event(&key_press(Key::End), &theme), EventResult::Ignored);
+    assert_eq!(tv.handle_event(&key_press(Key::Enter), &theme), EventResult::Ignored);
+}
+
+// ============================================================================
 // DockPanel
 // ============================================================================
 //

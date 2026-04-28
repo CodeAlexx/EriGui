@@ -1,6 +1,6 @@
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
-    Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, MouseButton,
+    MouseButtonEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -126,6 +126,99 @@ impl TreeView {
             }
         }
         None
+    }
+
+    /// Depth-first list of visible node ids, descending only into
+    /// expanded nodes. Mirrors the draw order in `draw_node`.
+    fn visible_ids(&self) -> Vec<String> {
+        fn walk(node: &TreeNode, out: &mut Vec<String>) {
+            out.push(node.id.clone());
+            if node.expanded {
+                for child in &node.children {
+                    walk(child, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for node in &self.root_nodes {
+            walk(node, &mut out);
+        }
+        out
+    }
+
+    /// Find the parent id of `target_id`, or `None` if `target_id` is a
+    /// root node or not present.
+    fn parent_id(&self, target_id: &str) -> Option<String> {
+        fn walk(node: &TreeNode, target_id: &str) -> Option<String> {
+            for child in &node.children {
+                if child.id == target_id {
+                    return Some(node.id.clone());
+                }
+                if let Some(found) = walk(child, target_id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        for node in &self.root_nodes {
+            if node.id == target_id {
+                return None;
+            }
+            if let Some(found) = walk(node, target_id) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Apply a fresh selection to `target_id`, clearing prior selection
+    /// across the entire tree. Fires `on_selection_change` if a callback
+    /// is installed.
+    fn set_selected_id(&mut self, target_id: &str) {
+        fn clear(node: &mut TreeNode) {
+            node.selected = false;
+            for child in &mut node.children {
+                clear(child);
+            }
+        }
+        for node in &mut self.root_nodes {
+            clear(node);
+        }
+        if let Some(node) = self.find_node_mut(target_id) {
+            node.selected = true;
+        }
+        if let Some(callback) = &mut self.on_selection_change {
+            callback(target_id);
+        }
+    }
+
+    /// Adjust `scroll_offset` so the currently-selected node is fully
+    /// visible. Mirror of `ListView::scroll_to_selected`.
+    fn scroll_to_selected(&mut self) {
+        let Some(selected) = self.selected_id() else {
+            return;
+        };
+        let visible = self.visible_ids();
+        let Some(index) = visible.iter().position(|id| id == &selected) else {
+            return;
+        };
+        let item_top = index as i32 * self.item_height;
+        let item_bottom = item_top + self.item_height;
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = viewport_top + self.state.bounds.height();
+        if item_top < viewport_top {
+            self.scroll_offset = item_top;
+        } else if item_bottom > viewport_bottom {
+            self.scroll_offset = item_bottom - self.state.bounds.height();
+        }
+        // Clamp to [0, max_scroll].
+        let total_height = self.count_visible_nodes() as i32 * self.item_height;
+        let max_scroll = (total_height - self.state.bounds.height()).max(0);
+        if self.scroll_offset < 0 {
+            self.scroll_offset = 0;
+        } else if self.scroll_offset > max_scroll {
+            self.scroll_offset = max_scroll;
+        }
     }
 
     fn count_visible_nodes(&self) -> usize {
@@ -483,6 +576,125 @@ impl Widget for TreeView {
                 }
 
                 EventResult::Ignored
+            }
+            Event::KeyPress(KeyPressEvent { key, .. }) => {
+                // Keyboard navigation when focused. Without focus we
+                // return Ignored so siblings (notably any text input
+                // nested in a tree row) keep their keys.
+                if !self.state.focused {
+                    return EventResult::Ignored;
+                }
+
+                let visible = self.visible_ids();
+                if visible.is_empty() {
+                    return EventResult::Ignored;
+                }
+
+                let current = self.selected_id();
+                let current_index = current
+                    .as_ref()
+                    .and_then(|id| visible.iter().position(|v| v == id));
+
+                match key {
+                    Key::Down => {
+                        let next = match current_index {
+                            Some(i) => (i + 1).min(visible.len() - 1),
+                            None => 0,
+                        };
+                        let target = visible[next].clone();
+                        self.set_selected_id(&target);
+                        self.scroll_to_selected();
+                        EventResult::Consumed
+                    }
+                    Key::Up => {
+                        let next = match current_index {
+                            Some(i) => i.saturating_sub(1),
+                            None => 0,
+                        };
+                        let target = visible[next].clone();
+                        self.set_selected_id(&target);
+                        self.scroll_to_selected();
+                        EventResult::Consumed
+                    }
+                    Key::Home => {
+                        let target = visible[0].clone();
+                        self.set_selected_id(&target);
+                        self.scroll_to_selected();
+                        EventResult::Consumed
+                    }
+                    Key::End => {
+                        let target = visible[visible.len() - 1].clone();
+                        self.set_selected_id(&target);
+                        self.scroll_to_selected();
+                        EventResult::Consumed
+                    }
+                    Key::Right => {
+                        // If selection has children: collapsed ->
+                        // expand; expanded -> move to first child. If
+                        // leaf or no selection: noop-Consumed.
+                        let Some(id) = current else {
+                            return EventResult::Consumed;
+                        };
+                        let (has_children, expanded) = match self.find_node_mut(&id) {
+                            Some(node) => (!node.children.is_empty(), node.expanded),
+                            None => (false, false),
+                        };
+                        if has_children && !expanded {
+                            if let Some(node) = self.find_node_mut(&id) {
+                                node.expanded = true;
+                            }
+                            if let Some(callback) = &mut self.on_expand {
+                                callback(&id, true);
+                            }
+                        } else if has_children && expanded {
+                            // Move selection to first child.
+                            let first_child_id =
+                                self.find_node_mut(&id).and_then(|node| {
+                                    node.children.first().map(|c| c.id.clone())
+                                });
+                            if let Some(child_id) = first_child_id {
+                                self.set_selected_id(&child_id);
+                                self.scroll_to_selected();
+                            }
+                        }
+                        EventResult::Consumed
+                    }
+                    Key::Left => {
+                        // If expanded: collapse. If collapsed (or leaf):
+                        // move selection to parent.
+                        let Some(id) = current else {
+                            return EventResult::Consumed;
+                        };
+                        let (has_children, expanded) = match self.find_node_mut(&id) {
+                            Some(node) => (!node.children.is_empty(), node.expanded),
+                            None => (false, false),
+                        };
+                        if has_children && expanded {
+                            if let Some(node) = self.find_node_mut(&id) {
+                                node.expanded = false;
+                            }
+                            if let Some(callback) = &mut self.on_expand {
+                                callback(&id, false);
+                            }
+                        } else if let Some(parent) = self.parent_id(&id) {
+                            self.set_selected_id(&parent);
+                            self.scroll_to_selected();
+                        }
+                        EventResult::Consumed
+                    }
+                    Key::Enter | Key::Space => {
+                        // Treat as activate. Mirrors a click on the
+                        // selected node: re-fire the selection callback.
+                        if let Some(id) = current {
+                            if let Some(callback) = &mut self.on_selection_change {
+                                callback(&id);
+                            }
+                            return EventResult::Consumed;
+                        }
+                        EventResult::Ignored
+                    }
+                    _ => EventResult::Ignored,
+                }
             }
             _ => EventResult::Ignored,
         }

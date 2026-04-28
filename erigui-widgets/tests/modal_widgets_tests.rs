@@ -728,7 +728,7 @@ fn manager_close_button_click_removes_and_fires_callback() {
     let close_press = Event::MouseButton(MouseButtonEvent {
         button: MouseButton::Left,
         position: Point::new(352, 38),
-        pressed: false, // The handler reacts on release, not press.
+        pressed: true, // Handler reacts on press, matching Button / Checkbox / ListView.
         modifiers: Modifiers::empty(),
     });
     let res = m.handle_event(&close_press, &theme);
@@ -758,13 +758,13 @@ fn manager_action_button_click_fires_action_callback() {
     // action_rect: width=80, height=24, inset 8 from right and bottom.
     // Item bounds = Rect(20, 20, 350, 80). action_rect = Rect(20+350-80-8, 20+80-24-8, 80, 24)
     //                                                  = Rect(282, 68, 80, 24); center = (322, 80).
-    let action_release = Event::MouseButton(MouseButtonEvent {
+    let action_press = Event::MouseButton(MouseButtonEvent {
         button: MouseButton::Left,
         position: Point::new(322, 80),
-        pressed: false,
+        pressed: true, // Handler reacts on press, matching the rest of the toolkit.
         modifiers: Modifiers::empty(),
     });
-    let res = m.handle_event(&action_release, &theme);
+    let res = m.handle_event(&action_press, &theme);
     assert_eq!(res, EventResult::Consumed, "action click should be consumed");
     assert_eq!(actions.borrow().as_slice(), &["a".to_string()]);
 }
@@ -941,10 +941,37 @@ fn manager_ignores_unrelated_events() {
 }
 
 #[test]
-fn manager_press_event_does_not_remove_notifications() {
-    // The handler only reacts to release (`pressed=false`). A press
-    // event must NOT remove the notification, even if it falls inside
-    // the close-button rect.
+fn manager_press_event_removes_notifications() {
+    // The handler reacts to press (matching Button / Checkbox /
+    // ListView). A press event on the close-button rect must remove
+    // the notification and fire the close callback exactly once.
+    let closed: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let cap = closed.clone();
+    let theme = default_theme();
+    let mut m = NotificationManager::new(test_id())
+        .with_position(NotificationPosition::TopLeft)
+        .with_on_notification_closed(move |id| cap.borrow_mut().push(id.to_string()));
+    m.layout(Rect::new(0, 0, 800, 600), &theme);
+    m.show(Notification::new("a", "T", "M"));
+    m.update_animations(10.0);
+    m.layout(Rect::new(0, 0, 800, 600), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(352, 38),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let res = m.handle_event(&press, &theme);
+    assert_eq!(res, EventResult::Consumed, "press on close button must Consume");
+    assert_eq!(closed.borrow().as_slice(), &["a".to_string()]);
+}
+
+#[test]
+fn manager_release_after_press_does_not_double_remove() {
+    // Press now closes the notification. A subsequent release event
+    // must not re-fire the callback (the notification is already gone)
+    // and must not panic.
     let closed: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let cap = closed.clone();
     let theme = default_theme();
@@ -963,10 +990,16 @@ fn manager_press_event_does_not_remove_notifications() {
         modifiers: Modifiers::empty(),
     });
     let _ = m.handle_event(&press, &theme);
-    assert!(
-        closed.borrow().is_empty(),
-        "press-only event must not close notification (release-triggered)"
-    );
+    assert_eq!(closed.borrow().len(), 1, "press fires callback once");
+
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(352, 38),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = m.handle_event(&release, &theme);
+    assert_eq!(closed.borrow().len(), 1, "release after press must not double-fire");
 }
 
 #[test]

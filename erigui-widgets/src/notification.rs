@@ -548,7 +548,11 @@ impl Widget for NotificationManager {
                 pressed,
                 ..
             }) => {
-                if !pressed {
+                // Fire on press, matching Button / Checkbox / ListView.
+                // Earlier code reacted on release, which was inconsistent
+                // with the rest of the toolkit and caused muscle-memory
+                // bugs in hosts.
+                if *pressed {
                     // Check for close button clicks
                     let mut clicked_close = None;
                     for (index, item) in self.notifications.iter().enumerate() {

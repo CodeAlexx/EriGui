@@ -1258,6 +1258,125 @@ fn accordion_arrows_ignored_when_unfocused() {
 }
 
 // ============================================================================
+// MenuBar focus rectification (Mojo-port cleanup, 2026-04-28)
+// Previously: is_focused returned hardcoded false, set_focused was a no-op,
+// can_focus returned true — contradictory tri-state. Hosts couldn't direct
+// focus to it (set_focused dropped events).
+// ============================================================================
+
+use erigui_widgets::{MenuBar, MenuItem};
+
+#[test]
+fn menubar_focus_round_trips() {
+    let mut bar = MenuBar::new(test_id());
+    bar.add_menu("File", vec![MenuItem::new("Open")]);
+    assert!(
+        bar.can_focus(),
+        "enabled+visible MenuBar should be focusable"
+    );
+    assert!(!bar.is_focused(), "starts unfocused");
+    bar.set_focused(true);
+    assert!(bar.is_focused(), "set_focused(true) sticks");
+    bar.set_focused(false);
+    assert!(!bar.is_focused(), "set_focused(false) sticks");
+}
+
+#[test]
+fn menubar_arrows_ignored_when_unfocused_and_no_dropdown() {
+    // Without focus and no dropdown open, arrow keys must not be consumed
+    // — otherwise the MenuBar would steal arrows from focused children.
+    let theme = default_theme();
+    let mut bar = MenuBar::new(test_id());
+    bar.add_menu("File", vec![MenuItem::new("Open"), MenuItem::new("Save")]);
+    bar.add_menu("Edit", vec![MenuItem::new("Cut")]);
+    bar.layout(Rect::new(0, 0, 300, 30), &theme);
+    assert!(!bar.is_focused());
+
+    let r = bar.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    let r = bar.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    let r = bar.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Ignored);
+}
+
+#[test]
+fn menubar_alt_mnemonic_works_unfocused_and_focuses_self() {
+    // Alt+letter is an app-wide accelerator and must work regardless of
+    // current focus. Activating it focuses the MenuBar so subsequent
+    // arrow keys land here.
+    let theme = default_theme();
+    let mut bar = MenuBar::new(test_id());
+    bar.add_menu("File", vec![MenuItem::new("Open")]);
+    bar.add_menu("Edit", vec![MenuItem::new("Cut")]);
+    bar.layout(Rect::new(0, 0, 300, 30), &theme);
+    assert!(!bar.is_focused());
+
+    let alt_e = Event::KeyPress(KeyPressEvent {
+        key: Key::E,
+        modifiers: Modifiers::ALT,
+        repeat: false,
+    });
+    let r = bar.handle_event(&alt_e, &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert!(bar.is_dropdown_visible(), "Alt+E opens Edit dropdown");
+    assert!(
+        bar.is_focused(),
+        "Alt-mnemonic activation must transfer focus to the MenuBar"
+    );
+}
+
+#[test]
+fn menubar_click_to_open_focuses_self() {
+    // Mouse click that opens a dropdown sets focus, so subsequent keyboard
+    // nav (arrows, Enter, Escape) actually fires.
+    use erigui_core::{MouseButton, MouseButtonEvent, Point};
+    let theme = default_theme();
+    let mut bar = MenuBar::new(test_id());
+    bar.add_menu("File", vec![MenuItem::new("Open"), MenuItem::new("Save")]);
+    bar.layout(Rect::new(0, 0, 300, 30), &theme);
+    assert!(!bar.is_focused());
+
+    let click = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(8, 15),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    bar.handle_event(&click, &theme);
+    assert!(bar.is_dropdown_visible(), "click opens dropdown");
+    assert!(bar.is_focused(), "click-to-open focuses the MenuBar");
+
+    // Now arrow keys work because focused.
+    let r = bar.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(r, EventResult::Consumed);
+}
+
+#[test]
+fn menubar_arrows_consumed_when_focused_and_dropdown_open() {
+    let theme = default_theme();
+    let mut bar = MenuBar::new(test_id());
+    bar.add_menu("File", vec![MenuItem::new("Open"), MenuItem::new("Save")]);
+    bar.layout(Rect::new(0, 0, 300, 30), &theme);
+    bar.set_focused(true);
+    // Programmatically open the dropdown via Alt-mnemonic so the test
+    // doesn't rely on click coordinates.
+    let alt_f = Event::KeyPress(KeyPressEvent {
+        key: Key::F,
+        modifiers: Modifiers::ALT,
+        repeat: false,
+    });
+    bar.handle_event(&alt_f, &theme);
+    assert!(bar.is_dropdown_visible());
+
+    let r = bar.handle_event(&no_mod_key(Key::Down), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    let r = bar.handle_event(&no_mod_key(Key::Escape), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert!(!bar.is_dropdown_visible(), "Esc closes dropdown");
+}
+
+// ============================================================================
 // Breadcrumb focus + keyboard nav (Mojo-port cleanup, 2026-04-28)
 // Previously: can_focus() returned false despite the widget being
 // interactive — focus state unreachable, no keyboard nav.

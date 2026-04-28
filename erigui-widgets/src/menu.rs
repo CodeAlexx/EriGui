@@ -618,6 +618,9 @@ impl Widget for MenuBar {
                                 .first_focusable_in(menu_index)
                                 .unwrap_or(-1);
                             self.submenu_open = None;
+                            // Click-to-open also focuses the MenuBar so
+                            // subsequent arrow keys land here.
+                            self.state.focused = true;
                             // Bug m16: replace stdout println with gated log.
                             log::trace!("menu: opening dropdown {}", menu_index);
                         }
@@ -663,6 +666,29 @@ impl Widget for MenuBar {
 
             Event::KeyPress(KeyPressEvent { key, modifiers, .. }) => {
                 // Bug m11: arrow / Enter / mnemonic / Esc keyboard nav.
+                //
+                // Alt+letter mnemonic activation runs unconditionally — it's
+                // an app-wide accelerator (e.g. Alt+F to open the File menu)
+                // and must work regardless of whether the MenuBar currently
+                // owns focus. Activating it sets focus so subsequent arrows
+                // land here.
+                if modifiers.contains(erigui_core::Modifiers::ALT) {
+                    if let Some(idx) = self.find_mnemonic_match(key) {
+                        self.active_menu = idx;
+                        self.dropdown_visible = true;
+                        self.dropdown_hover = self.first_focusable_in(idx).unwrap_or(-1);
+                        self.state.focused = true;
+                        return EventResult::Consumed;
+                    }
+                }
+
+                // All other keyboard nav requires the MenuBar to own focus,
+                // otherwise it would steal arrow keys / Enter / Escape from
+                // whatever else the host has focused.
+                if !self.state.focused {
+                    return EventResult::Ignored;
+                }
+
                 if matches!(key, Key::Escape) && self.dropdown_visible {
                     self.close_dropdown_internal();
                     return EventResult::Consumed;
@@ -720,16 +746,6 @@ impl Widget for MenuBar {
                     }
                 }
 
-                // Bug m11: mnemonic activation. Alt+letter opens the menu
-                // whose first character matches.
-                if modifiers.contains(erigui_core::Modifiers::ALT) {
-                    if let Some(idx) = self.find_mnemonic_match(key) {
-                        self.active_menu = idx;
-                        self.dropdown_visible = true;
-                        self.dropdown_hover = self.first_focusable_in(idx).unwrap_or(-1);
-                        return EventResult::Consumed;
-                    }
-                }
                 EventResult::Ignored
             }
 
@@ -813,13 +829,15 @@ impl Widget for MenuBar {
     }
 
     fn is_focused(&self) -> bool {
-        false
+        self.state.focused
     }
 
-    fn set_focused(&mut self, _focused: bool) {}
+    fn set_focused(&mut self, focused: bool) {
+        self.state.focused = focused;
+    }
 
     fn can_focus(&self) -> bool {
-        true
+        self.state.enabled && self.state.visible
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -1793,6 +1793,40 @@ fn spin_box_tooltip_shows_after_delay() {
 }
 
 #[test]
+fn combo_box_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut cb = ComboBox::new(test_id())
+        .with_items(vec!["one".to_string(), "two".to_string()])
+        .with_tooltip_state(TooltipState::new("Pick one").with_delay_ms(20));
+    cb.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    cb.handle_event(&move_event(Point::new(50, 15)), &theme);
+    assert!(!cb.tooltip().unwrap().is_visible());
+
+    std::thread::sleep(Duration::from_millis(30));
+    cb.handle_event(&move_event(Point::new(51, 15)), &theme);
+    assert!(cb.tooltip().unwrap().is_visible());
+}
+
+#[test]
+fn combo_box_tooltip_hides_on_mouse_press() {
+    let theme = default_theme();
+    let mut cb = ComboBox::new(test_id())
+        .with_items(vec!["one".to_string(), "two".to_string()])
+        .with_tooltip_state(TooltipState::new("Pick one").with_delay_ms(0));
+    cb.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    cb.handle_event(&move_event(Point::new(50, 15)), &theme);
+    assert!(cb.tooltip().unwrap().is_visible());
+
+    cb.handle_event(&left_press_event(Point::new(50, 15)), &theme);
+    assert!(
+        !cb.tooltip().unwrap().is_visible(),
+        "press must dismiss the tooltip even though it also opens the dropdown"
+    );
+}
+
+#[test]
 fn spin_box_tooltip_hides_on_mouse_press() {
     let theme = default_theme();
     let mut sb = SpinBox::new(test_id(), 0.0, 100.0, 50.0)

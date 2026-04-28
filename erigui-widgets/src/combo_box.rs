@@ -1,3 +1,4 @@
+use crate::tooltip::TooltipState;
 use erigui_core::{
     DrawContext, Event, EventResult, Key, LayoutConstraints, MouseButton, Point, Rect, Size, Theme,
     Widget, WidgetId, WidgetState,
@@ -19,6 +20,7 @@ pub struct ComboBox {
     dropdown_height: i32,
     max_visible_items: usize,
     on_selection_changed: Option<SelectionChangedCallback>,
+    tooltip: Option<TooltipState>,
 }
 
 impl ComboBox {
@@ -34,7 +36,25 @@ impl ComboBox {
             dropdown_height: 200,
             max_visible_items: 8,
             on_selection_changed: None,
+            tooltip: None,
         }
+    }
+
+    /// Attach a hover tooltip. Mirrors Button's `with_tooltip`.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(TooltipState::new(text));
+        self
+    }
+
+    /// Pre-configured `TooltipState` variant.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Read access for tests and introspection.
+    pub fn tooltip(&self) -> Option<&TooltipState> {
+        self.tooltip.as_ref()
     }
 
     pub fn with_items(mut self, items: Vec<String>) -> Self {
@@ -295,11 +315,29 @@ impl Widget for ComboBox {
                 );
             }
         }
+
+        // Tooltip overlays the combo box. Anchored to the closed
+        // bounds so it renders next to the field, not the dropdown.
+        // Drawn after the dropdown so it stays on top.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.visible || !self.state.enabled {
+            // Hidden / disabled combo box must not show a stale tooltip.
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
             return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility off the same event stream.
+        // Anchor to the closed bounds (state.bounds) — tooltip should
+        // describe the field, not the dropdown panel.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
         }
 
         match event {
@@ -414,6 +452,9 @@ impl Widget for ComboBox {
         self.state.enabled = enabled;
         if !enabled {
             self.is_open = false;
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
         }
     }
 

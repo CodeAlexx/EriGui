@@ -276,6 +276,18 @@ impl Widget for Button {
                             callback();
                         }
                     }
+                    self.state.focused = true;
+                    return EventResult::Consumed;
+                }
+            }
+            // Keyboard activation — Space or Enter when focused fires the
+            // on_click callback. Standard accessibility expectation.
+            Event::KeyPress(ev) if self.state.focused => {
+                use erigui_core::Key;
+                if matches!(ev.key, Key::Space | Key::Enter) {
+                    if let Some(callback) = &mut self.on_click {
+                        callback();
+                    }
                     return EventResult::Consumed;
                 }
             }

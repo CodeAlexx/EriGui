@@ -690,6 +690,55 @@ fn list_view_arrow_down_auto_scrolls_to_keep_selected_visible() {
 }
 
 #[test]
+fn button_space_enter_fires_when_focused() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let theme = default_theme();
+    let clicks = Rc::new(RefCell::new(0u32));
+    let c = clicks.clone();
+    let mut b = Button::new(test_id(), "Go").with_on_click(move || {
+        *c.borrow_mut() += 1;
+    });
+    b.layout(Rect::new(0, 0, 100, 30), &theme);
+    b.set_focused(true);
+
+    let key = |k: Key| Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+
+    b.handle_event(&key(Key::Space), &theme);
+    assert_eq!(*clicks.borrow(), 1, "Space on focused button should click");
+    b.handle_event(&key(Key::Enter), &theme);
+    assert_eq!(*clicks.borrow(), 2, "Enter on focused button should click");
+}
+
+#[test]
+fn button_keys_ignored_when_unfocused() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let theme = default_theme();
+    let clicks = Rc::new(RefCell::new(0u32));
+    let c = clicks.clone();
+    let mut b = Button::new(test_id(), "Go").with_on_click(move || {
+        *c.borrow_mut() += 1;
+    });
+    b.layout(Rect::new(0, 0, 100, 30), &theme);
+    // Not focused.
+
+    let _ = b.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Space,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    assert_eq!(*clicks.borrow(), 0);
+}
+
+#[test]
 fn list_view_keys_ignored_when_unfocused() {
     let theme = default_theme();
     let mut lv = list_with(5);

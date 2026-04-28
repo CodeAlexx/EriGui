@@ -370,6 +370,20 @@ impl Widget for Dialog {
                 }
             }
 
+            // Standard dialog UX: Escape closes. Without this, modal
+            // dialogs that don't have a Close button trap the user.
+            Event::KeyPress(ev) => {
+                use erigui_core::Key;
+                if ev.key == Key::Escape {
+                    self.close();
+                    EventResult::Consumed
+                } else if self.is_modal {
+                    EventResult::Consumed
+                } else {
+                    EventResult::Ignored
+                }
+            }
+
             _ => EventResult::Ignored,
         }
     }

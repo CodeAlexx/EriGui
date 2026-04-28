@@ -8,23 +8,29 @@
 //! for a real round-trip, the test degenerates to "construction + call
 //! doesn't panic," which is still a regression net.
 //!
-//! This commit covers ColorPicker. The FileDialog + FileFilter tests
-//! land in the next commit.
-//!
-//! Notes about the widget under test:
+//! Notes about the widgets under test:
 //!
 //! ColorPicker is mostly self-contained. The exposed surface is:
 //!   new(id), with_color, with_style, with_alpha, with_on_change,
 //!   get_color, set_color, plus the Widget trait. HSV state is private
 //!   and only observable indirectly through the callback or get_color.
+//!
+//! FileDialog is the in-app fallback after wave-1 commit `6f74592`
+//! switched the live app to `tinyfiledialogs` for native open/save.
+//! It still reads the host filesystem in `navigate_to_path` and
+//! `refresh_file_list` -- these tests pin it at `/tmp` so the tree is
+//! cheap, predictable, and side-effect free.
 
 use erigui_core::{
     Color, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConstraints, Modifiers,
     MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point, Rect, TextInputEvent,
     Theme, Widget, WidgetId,
 };
-use erigui_widgets::{ColorPicker, ColorPickerStyle};
+use erigui_widgets::{
+    ColorPicker, ColorPickerStyle, FileDialog, FileDialogMode, FileFilter,
+};
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 // Helpers copied verbatim from the sibling test files. Kept in sync if
@@ -516,6 +522,13 @@ fn color_picker_mouse_release_clears_drag_state() {
         }),
         &theme,
     );
+    // NOTE: the release-outside path also closes the popup (it's a
+    // press-or-release click outside, and the impl always treats
+    // outside-clicks as close-popup when *pressed is true; for
+    // *pressed == false outside the popup, no special action is
+    // taken -- but the drag flags ARE cleared by the bottom of the
+    // MouseButton arm). Re-open to keep the drag-vs-no-drag test
+    // sane.
 
     let n_after_release = captured.borrow().len();
 
@@ -679,4 +692,535 @@ fn color_picker_layout_event_smoke_does_not_panic() {
             );
         }
     }
+}
+
+// ============================================================================
+// FileFilter
+// ============================================================================
+//
+// FileFilter is plain data with a `matches` predicate. Pure pinning.
+
+#[test]
+fn file_filter_matches_extension_case_sensitive() {
+    let f = FileFilter::new("JSON", vec!["json"]);
+    assert!(f.matches(std::path::Path::new("foo.json")));
+    // The implementation does case-sensitive comparison: "JSON" != "json".
+    assert!(
+        !f.matches(std::path::Path::new("foo.JSON")),
+        "FileFilter matches uses case-sensitive extension compare"
+    );
+    assert!(!f.matches(std::path::Path::new("foo.txt")));
+}
+
+#[test]
+fn file_filter_matches_multiple_extensions() {
+    let f = FileFilter::new("Image", vec!["png", "jpg", "jpeg"]);
+    assert!(f.matches(std::path::Path::new("a.png")));
+    assert!(f.matches(std::path::Path::new("a.jpg")));
+    assert!(f.matches(std::path::Path::new("a.jpeg")));
+    assert!(!f.matches(std::path::Path::new("a.bmp")));
+}
+
+#[test]
+fn file_filter_wildcard_matches_anything_with_extension() {
+    // The "*" sentinel matches any extension. NOTE: the impl only
+    // returns true if the path HAS an extension -- a pathless name
+    // like "Makefile" returns false even with the "*" filter.
+    let f = FileFilter::new("All", vec!["*"]);
+    assert!(f.matches(std::path::Path::new("a.png")));
+    assert!(f.matches(std::path::Path::new("a.bin")));
+    assert!(f.matches(std::path::Path::new("a.txt")));
+    assert!(
+        !f.matches(std::path::Path::new("Makefile")),
+        "wildcard filter requires an extension to be present (current contract)"
+    );
+}
+
+#[test]
+fn file_filter_empty_extensions_matches_anything() {
+    // Per the impl: `if self.extensions.is_empty() { return true; }`.
+    // Used as a sentinel for "no filtering."
+    let f = FileFilter::new("None", Vec::<&str>::new());
+    assert!(f.matches(std::path::Path::new("foo.txt")));
+    assert!(f.matches(std::path::Path::new("Makefile")));
+}
+
+#[test]
+fn file_filter_no_extension_with_specific_filter_does_not_match() {
+    let f = FileFilter::new("Text", vec!["txt"]);
+    assert!(!f.matches(std::path::Path::new("README")));
+}
+
+#[test]
+fn file_filter_round_trips_fields() {
+    let f = FileFilter::new("Image", vec!["png", "jpg"]);
+    assert_eq!(f.name, "Image");
+    assert_eq!(f.extensions, vec!["png".to_string(), "jpg".to_string()]);
+}
+
+// ============================================================================
+// FileDialog
+// ============================================================================
+//
+// FileDialog reads the host filesystem in `navigate_to_path` and
+// `refresh_file_list` (called from `new`). On a normal Linux dev box
+// $HOME exists and is readable; tests will work. To avoid touching
+// the home directory, every test below pins to /tmp via
+// `with_initial_path`. /tmp exists on every Linux/macOS box and
+// reading it has no side effects.
+//
+// We can NOT directly observe:
+//   - the entries vector (private)
+//   - selected_filter index
+//   - which file is "selected" before a click happens
+// So most tests are smoke + the public callbacks.
+
+fn temp_dir() -> PathBuf {
+    PathBuf::from("/tmp")
+}
+
+#[test]
+fn file_dialog_creation_open_mode_defaults() {
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open);
+    assert!(fd.is_visible());
+    assert!(fd.is_enabled());
+    assert!(!fd.is_focused());
+    assert!(fd.can_focus());
+    assert!(fd.get_selected_path().is_none(), "fresh dialog has no selection");
+}
+
+#[test]
+fn file_dialog_creation_save_mode_defaults() {
+    let fd = FileDialog::new(test_id(), FileDialogMode::Save);
+    assert!(fd.get_selected_path().is_none());
+}
+
+#[test]
+fn file_dialog_creation_select_folder_mode_defaults() {
+    let fd = FileDialog::new(test_id(), FileDialogMode::SelectFolder);
+    assert!(fd.get_selected_path().is_none());
+}
+
+#[test]
+fn file_dialog_with_initial_path_to_dir_runs() {
+    // Pin to /tmp so we don't touch $HOME.
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    // No directory getter, but the construction + navigate path must
+    // not panic and the dialog must remain in a sane state.
+    assert!(fd.is_enabled());
+    // get_selected_path must still be None (initial path is a dir, not
+    // a file).
+    assert!(fd.get_selected_path().is_none());
+}
+
+#[test]
+fn file_dialog_with_initial_path_nonexistent_is_silently_ignored() {
+    // navigate_to_path early-returns if !path.exists() || !path.is_dir().
+    // The dialog stays at $HOME.
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(PathBuf::from("/this/path/does/not/exist/abc123"));
+    assert!(fd.is_enabled());
+    assert!(fd.get_selected_path().is_none());
+}
+
+#[test]
+fn file_dialog_with_filters_round_trips() {
+    let filters = vec![
+        FileFilter::new("Image", vec!["png", "jpg"]),
+        FileFilter::new("Text", vec!["txt"]),
+    ];
+    // No filters getter; the builder must run and dialog must remain
+    // operable.
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_filters(filters);
+    assert!(fd.is_enabled());
+}
+
+#[test]
+fn file_dialog_with_filters_empty_does_not_panic() {
+    // Edge: empty filter list. The impl gates `update_filter_button`
+    // behind `!self.filters.is_empty()`, so passing an empty Vec
+    // should leave the existing button text alone.
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_filters(Vec::new());
+    assert!(fd.is_enabled());
+}
+
+#[test]
+fn file_dialog_layout_sets_bounds() {
+    let theme = default_theme();
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    fd.layout(Rect::new(50, 60, 700, 500), &theme);
+    let b = fd.bounds();
+    assert_eq!(b.x(), 50);
+    assert_eq!(b.y(), 60);
+    assert_eq!(b.width(), 700);
+    assert_eq!(b.height(), 500);
+}
+
+#[test]
+fn file_dialog_layout_save_mode_does_not_panic() {
+    // Save mode lays out the filename input; verify both modes complete.
+    let theme = default_theme();
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Save).with_initial_path(temp_dir());
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+}
+
+#[test]
+fn file_dialog_measure_default_size() {
+    // measure() returns Size::new(700, 500) regardless of mode/state.
+    let theme = default_theme();
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    let s = fd.measure(&LayoutConstraints::UNBOUNDED, &theme);
+    assert_eq!(s.width, 700);
+    assert_eq!(s.height, 500);
+}
+
+#[test]
+fn file_dialog_visibility_and_enabled_round_trip() {
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    fd.set_visible(false);
+    assert!(!fd.is_visible());
+    fd.set_enabled(false);
+    assert!(!fd.is_enabled());
+}
+
+#[test]
+fn file_dialog_focus_round_trips() {
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    assert!(!fd.is_focused());
+    fd.set_focused(true);
+    assert!(fd.is_focused());
+    fd.set_focused(false);
+    assert!(!fd.is_focused());
+}
+
+#[test]
+fn file_dialog_can_focus_respects_disabled_and_invisible() {
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    assert!(fd.can_focus());
+    fd.set_enabled(false);
+    assert!(!fd.can_focus(), "disabled FileDialog must not advertise focus");
+    fd.set_enabled(true);
+    fd.set_visible(false);
+    assert!(!fd.can_focus(), "invisible FileDialog must not advertise focus");
+}
+
+#[test]
+fn file_dialog_disabled_or_invisible_ignores_events() {
+    let theme = default_theme();
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let click = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(100, 100),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    fd.set_visible(false);
+    assert_eq!(fd.handle_event(&click, &theme), EventResult::Ignored);
+    fd.set_visible(true);
+    fd.set_enabled(false);
+    assert_eq!(fd.handle_event(&click, &theme), EventResult::Ignored);
+}
+
+#[test]
+fn file_dialog_escape_key_fires_cancel_callback() {
+    let cancelled: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = cancelled.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_on_cancel(move || *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let esc = Event::KeyPress(KeyPressEvent {
+        key: Key::Escape,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    let res = fd.handle_event(&esc, &theme);
+    assert_eq!(res, EventResult::Consumed, "Escape on FileDialog is consumed");
+    assert_eq!(*cancelled.borrow(), 1, "Escape fires on_cancel exactly once");
+}
+
+#[test]
+fn file_dialog_cancel_button_release_fires_cancel_callback() {
+    // Layout puts the cancel button in the bottom-right of the footer:
+    //   x = bounds.right() - padding(10) - button_width(80)
+    //   y = bounds.y + (footer_y + (50 - 30)/2)
+    //   footer_y = bounds.bottom() - 50
+    //   bounds = (0, 0, 700, 500): cancel = (610, 460, 80, 30).
+    let cancelled: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = cancelled.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_on_cancel(move || *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    // Release inside cancel button rect at (650, 475).
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(650, 475),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&release, &theme);
+    assert_eq!(
+        *cancelled.borrow(),
+        1,
+        "release on cancel button fires on_cancel"
+    );
+}
+
+#[test]
+fn file_dialog_cancel_button_press_does_not_fire_callback() {
+    // The handler reacts only on release (`pressed == false`); a press
+    // event must not fire on_cancel.
+    let cancelled: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = cancelled.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_on_cancel(move || *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(650, 475),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&press, &theme);
+    assert_eq!(
+        *cancelled.borrow(),
+        0,
+        "cancel button press (without release) must NOT fire on_cancel"
+    );
+}
+
+#[test]
+fn file_dialog_save_mode_ok_with_invalid_filename_does_nothing() {
+    // Save-mode OK path: handle_ok() requires
+    // `validate_filename(&filename).is_ok()`. The default
+    // filename_input is empty -- validate_filename rejects empty.
+    // So a release on the OK button must NOT fire on_file_selected.
+    //
+    // OK button rect:
+    //   x = bounds.right() - padding(10) - 2*button_width(80) - 10 = 700-10-170 = 520
+    //   y = 460 (same as cancel)
+    //   size = (80, 30); center = (560, 475).
+    let selected: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let cap = selected.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Save)
+        .with_initial_path(temp_dir())
+        .with_on_file_selected(move |p| *cap.borrow_mut() = Some(p.to_path_buf()));
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(560, 475),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&release, &theme);
+    assert!(
+        selected.borrow().is_none(),
+        "Save mode OK with empty filename must not fire on_file_selected"
+    );
+}
+
+#[test]
+fn file_dialog_select_folder_mode_ok_fires_callback_with_current_path() {
+    // SelectFolder mode unconditionally calls on_file_selected with
+    // current_path on OK. We pin current_path to /tmp via initial_path.
+    let selected: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let cap = selected.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::SelectFolder)
+        .with_initial_path(temp_dir())
+        .with_on_file_selected(move |p| *cap.borrow_mut() = Some(p.to_path_buf()));
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    // Same OK button geometry as before: center (560, 475).
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(560, 475),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&release, &theme);
+    let sel = selected.borrow();
+    assert!(
+        sel.is_some(),
+        "SelectFolder OK click must fire on_file_selected"
+    );
+    assert_eq!(
+        sel.as_deref(),
+        Some(temp_dir().as_path()),
+        "SelectFolder OK passes current_path"
+    );
+}
+
+#[test]
+fn file_dialog_open_mode_ok_with_no_selection_does_nothing() {
+    // Open-mode handle_ok requires selected_file to be Some & exist as
+    // a file. With no selection, the callback must NOT fire.
+    let selected: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = selected.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_initial_path(temp_dir())
+        .with_on_file_selected(move |_| *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(560, 475),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = fd.handle_event(&release, &theme);
+    assert_eq!(
+        *selected.borrow(),
+        0,
+        "Open mode OK with no selected_file must not fire on_file_selected"
+    );
+}
+
+#[test]
+fn file_dialog_event_smoke_does_not_panic() {
+    // Defensive: drive a laid-out FileDialog through a barrage of
+    // events. No assertions about result -- the bar is "no panic" and
+    // "no side effects on the host filesystem."
+    let theme = default_theme();
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    let positions = [
+        Point::new(-100, -100),
+        Point::new(0, 0),
+        Point::new(350, 250),
+        Point::new(10000, 10000),
+    ];
+    for p in &positions {
+        for pressed in [true, false] {
+            let _ = fd.handle_event(
+                &Event::MouseButton(MouseButtonEvent {
+                    button: MouseButton::Left,
+                    position: *p,
+                    pressed,
+                    modifiers: Modifiers::empty(),
+                }),
+                &theme,
+            );
+            let _ = fd.handle_event(
+                &Event::MouseMove(MouseMoveEvent {
+                    position: *p,
+                    delta: Point::new(0, 0),
+                    modifiers: Modifiers::empty(),
+                }),
+                &theme,
+            );
+            let _ = fd.handle_event(
+                &Event::MouseWheel(MouseWheelEvent {
+                    delta: Point::new(0, -1),
+                    position: *p,
+                    modifiers: Modifiers::empty(),
+                }),
+                &theme,
+            );
+        }
+    }
+    let _ = fd.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Down,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    let _ = fd.handle_event(
+        &Event::TextInput(TextInputEvent {
+            text: "abc".to_string(),
+        }),
+        &theme,
+    );
+    let _ = fd.handle_event(&Event::Update, &theme);
+}
+
+#[test]
+fn file_dialog_set_bounds_round_trips() {
+    let mut fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(temp_dir());
+    fd.set_bounds(Rect::new(5, 5, 600, 400));
+    assert_eq!(fd.bounds().x(), 5);
+    assert_eq!(fd.bounds().width(), 600);
+}
+
+#[test]
+fn file_dialog_validate_filename_indirect_via_save_mode() {
+    // validate_filename is private; observable only via Save-mode OK
+    // behavior. We can't drive the filename input from outside (no
+    // accessor), so this test just locks in that an empty filename
+    // does NOT fire on_file_selected (already covered above), and
+    // here we focus on the second contract: when an unrelated event
+    // doesn't synthesize text input, no spurious save fires.
+    let selected: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+    let cap = selected.clone();
+    let theme = default_theme();
+    let mut fd = FileDialog::new(test_id(), FileDialogMode::Save)
+        .with_initial_path(temp_dir())
+        .with_on_file_selected(move |_| *cap.borrow_mut() += 1);
+    fd.layout(Rect::new(0, 0, 700, 500), &theme);
+
+    // Several Update / TextInput / KeyPress events that don't
+    // ultimately reach the handle_ok path.
+    for _ in 0..5 {
+        let _ = fd.handle_event(&Event::Update, &theme);
+        let _ = fd.handle_event(
+            &Event::TextInput(TextInputEvent {
+                text: "noise".to_string(),
+            }),
+            &theme,
+        );
+    }
+    assert_eq!(
+        *selected.borrow(),
+        0,
+        "no spurious on_file_selected firings from unrelated events"
+    );
+}
+
+#[test]
+fn file_dialog_with_initial_path_to_existing_file_records_selection() {
+    // The impl tracks selected_file when given an initial path that is
+    // an existing FILE. Use Cargo.toml in this crate's repo as the
+    // file -- we KNOW it exists in this workspace, and reading it has
+    // no side effects. (Resolving by env!("CARGO_MANIFEST_DIR") gives
+    // us the absolute path to erigui-widgets/.)
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let cargo_toml = manifest_dir.join("Cargo.toml");
+    assert!(cargo_toml.exists(), "Cargo.toml must exist for this test");
+
+    let fd =
+        FileDialog::new(test_id(), FileDialogMode::Open).with_initial_path(&cargo_toml);
+    let sel = fd.get_selected_path();
+    assert_eq!(
+        sel,
+        Some(cargo_toml.as_path()),
+        "with_initial_path(file) must set selected_file"
+    );
 }

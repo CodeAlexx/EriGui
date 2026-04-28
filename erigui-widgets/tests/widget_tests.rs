@@ -1257,6 +1257,130 @@ fn accordion_arrows_ignored_when_unfocused() {
     assert_eq!(r, EventResult::Ignored);
 }
 
+// ============================================================================
+// Breadcrumb focus + keyboard nav (Mojo-port cleanup, 2026-04-28)
+// Previously: can_focus() returned false despite the widget being
+// interactive — focus state unreachable, no keyboard nav.
+// ============================================================================
+
+use erigui_widgets::{Breadcrumb, BreadcrumbItem};
+
+fn breadcrumb_with(n: usize) -> Breadcrumb {
+    let mut items = Vec::with_capacity(n);
+    for i in 0..n {
+        items.push(BreadcrumbItem::new(format!("seg_{i}"), format!("id_{i}")));
+    }
+    Breadcrumb::new(test_id())
+        .with_home_icon(false)
+        .with_items(items)
+}
+
+#[test]
+fn breadcrumb_focus_round_trips() {
+    let theme = default_theme();
+    let mut b = breadcrumb_with(3);
+    b.layout(Rect::new(0, 0, 600, 30), &theme);
+    assert!(b.can_focus(), "enabled+visible Breadcrumb should be focusable");
+    assert!(!b.is_focused(), "starts unfocused");
+    b.set_focused(true);
+    assert!(b.is_focused());
+    b.set_focused(false);
+    assert!(!b.is_focused());
+}
+
+#[test]
+fn breadcrumb_right_advances_when_focused() {
+    let theme = default_theme();
+    // Default Breadcrumb has a home item (index 0) plus our 2 items, so
+    // the unified count is 3.
+    let mut b = breadcrumb_with(2);
+    b.layout(Rect::new(0, 0, 600, 30), &theme);
+    b.set_focused(true);
+    assert_eq!(b.focused_index(), None);
+
+    let r = b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(
+        b.focused_index(),
+        Some(0),
+        "first Right picks home (index 0)"
+    );
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(b.focused_index(), Some(1));
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(b.focused_index(), Some(2));
+    // Wraps
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(b.focused_index(), Some(0));
+}
+
+#[test]
+fn breadcrumb_left_moves_back_when_focused() {
+    let theme = default_theme();
+    let mut b = breadcrumb_with(2); // unified count 3 (home + 2)
+    b.layout(Rect::new(0, 0, 600, 30), &theme);
+    b.set_focused(true);
+    // Walk to last
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(b.focused_index(), Some(2));
+
+    b.handle_event(&no_mod_key(Key::Left), &theme);
+    assert_eq!(b.focused_index(), Some(1));
+    b.handle_event(&no_mod_key(Key::Left), &theme);
+    assert_eq!(b.focused_index(), Some(0));
+    // Wraps
+    b.handle_event(&no_mod_key(Key::Left), &theme);
+    assert_eq!(b.focused_index(), Some(2));
+}
+
+#[test]
+fn breadcrumb_enter_navigates_focused_segment() {
+    let theme = default_theme();
+    // Set up: home + 3 items (foo, bar, baz). Focus the home (index 0)
+    // and Enter — should clear items via navigate_to(0). on_navigate
+    // fires with home id.
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let last_id: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let last_id_clone = last_id.clone();
+    let mut b = Breadcrumb::new(test_id())
+        .with_home_icon(false)
+        .with_items(vec![
+            BreadcrumbItem::new("foo", "id_foo"),
+            BreadcrumbItem::new("bar", "id_bar"),
+            BreadcrumbItem::new("baz", "id_baz"),
+        ])
+        .with_on_navigate(move |id, _idx| {
+            *last_id_clone.borrow_mut() = Some(id.to_string());
+        });
+    b.layout(Rect::new(0, 0, 800, 30), &theme);
+    b.set_focused(true);
+
+    // First Right → home (0). Enter → navigate to home, clears items.
+    b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(b.focused_index(), Some(0));
+    let r = b.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(last_id.borrow().as_deref(), Some("home"));
+}
+
+#[test]
+fn breadcrumb_keys_ignored_when_unfocused() {
+    let theme = default_theme();
+    let mut b = breadcrumb_with(3);
+    b.layout(Rect::new(0, 0, 600, 30), &theme);
+    // Not focused.
+    let r = b.handle_event(&no_mod_key(Key::Right), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(b.focused_index(), None);
+    let r = b.handle_event(&no_mod_key(Key::Left), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    let r = b.handle_event(&no_mod_key(Key::Enter), &theme);
+    assert_eq!(r, EventResult::Ignored);
+}
+
 #[test]
 fn accordion_down_skips_disabled_panel() {
     let theme = default_theme();

@@ -1,7 +1,7 @@
 use crate::Icon;
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
-    Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, MouseButton,
+    MouseButtonEvent, Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -41,6 +41,10 @@ pub struct Breadcrumb {
     // Visual state
     hovered_index: Option<usize>,
     pressed_index: Option<usize>,
+    /// Keyboard cursor across the unified [home?, items...] list. `None`
+    /// means no segment is the cursor; first Right picks the first
+    /// enabled segment.
+    focused_index: Option<usize>,
     item_rects: Vec<Rect>,
 
     // Style
@@ -61,6 +65,7 @@ impl Breadcrumb {
             home_item: Some(BreadcrumbItem::new("Home", "home")),
             hovered_index: None,
             pressed_index: None,
+            focused_index: None,
             item_rects: Vec::new(),
             spacing: 8,
             padding: 12,
@@ -121,6 +126,65 @@ impl Breadcrumb {
         }
 
         path
+    }
+
+    /// Currently keyboard-focused segment index, in the unified
+    /// `[home?, items...]` space. Exposed for tests.
+    pub fn focused_index(&self) -> Option<usize> {
+        self.focused_index
+    }
+
+    /// Total number of segments in the unified list.
+    fn segment_count(&self) -> usize {
+        let home = if self.home_item.is_some() { 1 } else { 0 };
+        home + self.items.len()
+    }
+
+    /// Whether the segment at the unified index is enabled.
+    fn segment_enabled(&self, index: usize) -> bool {
+        if self.home_item.is_some() {
+            if index == 0 {
+                return self.home_item.as_ref().is_some_and(|h| h.enabled);
+            }
+            let i = index - 1;
+            i < self.items.len() && self.items[i].enabled
+        } else {
+            index < self.items.len() && self.items[index].enabled
+        }
+    }
+
+    /// Find the next enabled segment from `start`, going `forward` or
+    /// backward. Wraps around. Returns `None` if no enabled segment exists
+    /// at all (or only `start` itself is enabled).
+    fn next_enabled_segment(&self, start: usize, forward: bool) -> Option<usize> {
+        let n = self.segment_count();
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return if self.segment_enabled(0) {
+                Some(0)
+            } else {
+                None
+            };
+        }
+        for step in 1..=n {
+            let i = if forward {
+                (start + step) % n
+            } else {
+                (start + n - step) % n
+            };
+            if self.segment_enabled(i) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Pick a starting segment for keyboard navigation when none is
+    /// focused. Prefers the first enabled segment.
+    fn first_enabled_segment(&self) -> Option<usize> {
+        (0..self.segment_count()).find(|&i| self.segment_enabled(i))
     }
 
     pub fn navigate_to(&mut self, index: usize) {
@@ -449,6 +513,65 @@ impl Widget for Breadcrumb {
 
                 return EventResult::Consumed;
             }
+            Event::KeyPress(KeyPressEvent { key, modifiers, .. })
+                if self.state.focused && modifiers.is_empty() =>
+            {
+                // Keyboard nav fires only when this Breadcrumb owns focus,
+                // so it never steals Left/Right from focused children
+                // elsewhere in the host's widget tree.
+                match key {
+                    Key::Right => {
+                        let next = match self.focused_index {
+                            Some(start) => self.next_enabled_segment(start, true),
+                            None => self.first_enabled_segment(),
+                        };
+                        if let Some(idx) = next {
+                            self.focused_index = Some(idx);
+                            return EventResult::Consumed;
+                        }
+                        return EventResult::Ignored;
+                    }
+                    Key::Left => {
+                        let next = match self.focused_index {
+                            Some(start) => self.next_enabled_segment(start, false),
+                            None => self.first_enabled_segment(),
+                        };
+                        if let Some(idx) = next {
+                            self.focused_index = Some(idx);
+                            return EventResult::Consumed;
+                        }
+                        return EventResult::Ignored;
+                    }
+                    Key::Enter => {
+                        // Enter "clicks" the focused segment. Mirror the
+                        // click handler: only navigate if it's not the
+                        // last segment (that's the current location and
+                        // a no-op even on click).
+                        if let Some(idx) = self.focused_index {
+                            if !self.segment_enabled(idx) {
+                                return EventResult::Ignored;
+                            }
+                            let last_index = if self.home_item.is_some() {
+                                self.items.len()
+                            } else if self.items.is_empty() {
+                                0
+                            } else {
+                                self.items.len() - 1
+                            };
+                            if idx != last_index {
+                                self.navigate_to(idx);
+                                // navigate_to may have truncated items;
+                                // clear focus cursor to avoid pointing
+                                // past the new end.
+                                self.focused_index = None;
+                            }
+                            return EventResult::Consumed;
+                        }
+                        return EventResult::Ignored;
+                    }
+                    _ => return EventResult::Ignored,
+                }
+            }
             _ => {}
         }
 
@@ -488,7 +611,7 @@ impl Widget for Breadcrumb {
     }
 
     fn can_focus(&self) -> bool {
-        false
+        self.state.enabled && self.state.visible
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -8,12 +8,12 @@
 //! regression net.
 
 use erigui_core::{
-    Color, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConfig, LayoutConstraints,
-    LayoutMode, Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point,
-    Rect, ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
+    Color, DrawContext, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConfig,
+    LayoutConstraints, LayoutMode, Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent,
+    MouseWheelEvent, Point, Rect, ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
 };
 use erigui_widgets::{
-    Container, Label, SeparatorStyle, StatusBar, StatusPanel, StatusPanelWidth, TextAlign,
+    Container, Icon, Label, SeparatorStyle, StatusBar, StatusPanel, StatusPanelWidth, TextAlign,
     TextAlignment,
 };
 use slotmap::SlotMap;
@@ -606,4 +606,287 @@ fn container_add_remove_does_not_panic_when_layout_mode_is_grid() {
     let _ = c.measure(&LayoutConstraints::bounded(300, 300), &theme);
     c.clear_children();
     assert_eq!(c.children().len(), 0);
+}
+
+// ============================================================================
+// Icon
+// ============================================================================
+//
+// Icon is NOT a Widget. It's a zero-sized namespace of `pub fn draw_*`
+// methods that take a `&mut dyn DrawContext` and a Rect or Point. There's
+// no internal state, no events, no `new()`, no source/size round-trip.
+//
+// To exercise the actual code paths we need a DrawContext stub. It is
+// scoped to this section and used only by Icon tests. The stub records a
+// per-method call count so each test can assert "this draw routine
+// actually invoked the operations we expected" without any GL/GPU.
+
+#[derive(Default)]
+struct IconRecorder {
+    set_color: usize,
+    draw_rect: usize,
+    fill_rect: usize,
+    draw_circle: usize,
+    fill_circle: usize,
+    draw_line: usize,
+    draw_text: usize,
+    push_clip: usize,
+    pop_clip: usize,
+    rounded_rect: usize,
+    fill_rounded_rect: usize,
+    gradient_rect: usize,
+    shadow: usize,
+    draw_ellipse: usize,
+    fill_ellipse: usize,
+    draw_polygon: usize,
+    fill_polygon: usize,
+    set_line_width: usize,
+    draw_image: usize,
+}
+
+impl DrawContext for IconRecorder {
+    fn set_color(&mut self, _color: Color) {
+        self.set_color += 1;
+    }
+    fn draw_rect(&mut self, _rect: Rect) {
+        self.draw_rect += 1;
+    }
+    fn fill_rect(&mut self, _rect: Rect) {
+        self.fill_rect += 1;
+    }
+    fn draw_circle(&mut self, _center: Point, _radius: i32, _segments: i32) {
+        self.draw_circle += 1;
+    }
+    fn fill_circle(&mut self, _center: Point, _radius: i32, _segments: i32) {
+        self.fill_circle += 1;
+    }
+    fn draw_line(&mut self, _start: Point, _end: Point, _thickness: i32) {
+        self.draw_line += 1;
+    }
+    fn draw_text(&mut self, _text: &str, _position: Point, _size: i32) {
+        self.draw_text += 1;
+    }
+    fn measure_text(&self, _text: &str, size: i32) -> Size {
+        // Return something sensible; can't mutate self because trait method
+        // takes &self.
+        Size::new(8 * 5, size)
+    }
+    fn push_clip_rect(&mut self, _rect: Rect) {
+        self.push_clip += 1;
+    }
+    fn pop_clip_rect(&mut self) {
+        self.pop_clip += 1;
+    }
+    fn viewport_size(&self) -> Size {
+        Size::new(800, 600)
+    }
+    fn draw_rounded_rect(&mut self, _rect: Rect, _radius: i32) {
+        self.rounded_rect += 1;
+    }
+    fn fill_rounded_rect(&mut self, _rect: Rect, _radius: i32) {
+        self.fill_rounded_rect += 1;
+    }
+    fn draw_gradient_rect(
+        &mut self,
+        _rect: Rect,
+        _top: Color,
+        _bot: Color,
+        _horizontal: bool,
+    ) {
+        self.gradient_rect += 1;
+    }
+    fn draw_shadow(
+        &mut self,
+        _rect: Rect,
+        _color: Color,
+        _blur: i32,
+        _offset: Point,
+    ) {
+        self.shadow += 1;
+    }
+    fn draw_ellipse(&mut self, _center: Point, _rx: i32, _ry: i32, _segments: i32) {
+        self.draw_ellipse += 1;
+    }
+    fn fill_ellipse(&mut self, _center: Point, _rx: i32, _ry: i32, _segments: i32) {
+        self.fill_ellipse += 1;
+    }
+    fn draw_polygon(&mut self, _points: &[Point]) {
+        self.draw_polygon += 1;
+    }
+    fn fill_polygon(&mut self, _points: &[Point]) {
+        self.fill_polygon += 1;
+    }
+    fn set_line_width(&mut self, _width: i32) {
+        self.set_line_width += 1;
+    }
+    fn draw_image_rgba(&mut self, _rect: Rect, _w: i32, _h: i32, _data: &[u8]) {
+        self.draw_image += 1;
+    }
+}
+
+fn icon_bounds() -> Rect {
+    Rect::new(0, 0, 24, 24)
+}
+
+#[test]
+fn icon_back_arrow_draws_polygon() {
+    let mut r = IconRecorder::default();
+    Icon::draw_back_arrow(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.set_color > 0, "back_arrow should set a color");
+    assert!(r.fill_polygon > 0, "back_arrow draws a filled triangle");
+}
+
+#[test]
+fn icon_forward_arrow_draws_polygon() {
+    let mut r = IconRecorder::default();
+    Icon::draw_forward_arrow(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_polygon > 0, "forward_arrow draws a filled triangle");
+}
+
+#[test]
+fn icon_up_arrow_draws_polygon() {
+    let mut r = IconRecorder::default();
+    Icon::draw_up_arrow(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_polygon > 0);
+}
+
+#[test]
+fn icon_home_draws_polygon_and_rect() {
+    let mut r = IconRecorder::default();
+    Icon::draw_home(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_polygon > 0, "home draws a roof polygon");
+    assert!(r.fill_rect > 0, "home draws a body rectangle");
+}
+
+#[test]
+fn icon_refresh_draws_arc_and_arrow_head() {
+    let mut r = IconRecorder::default();
+    Icon::draw_refresh(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.draw_line > 0, "refresh draws line segments for the arc");
+    assert!(r.fill_polygon > 0, "refresh draws an arrow-head polygon");
+    assert!(r.set_line_width > 0);
+}
+
+#[test]
+fn icon_folder_draws_rounded_rects() {
+    let mut r = IconRecorder::default();
+    Icon::draw_folder(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_rounded_rect >= 2, "folder draws tab + body rounded rects");
+}
+
+#[test]
+fn icon_folder_new_draws_folder_plus_plus() {
+    let mut r = IconRecorder::default();
+    Icon::draw_folder_new(&mut r, icon_bounds(), Color::WHITE);
+    // folder_new = folder (>=2 rounded rects) + plus sign (2 fill_rect calls)
+    assert!(r.fill_rounded_rect >= 2);
+    assert!(r.fill_rect >= 2, "folder_new draws horizontal + vertical plus bars");
+}
+
+#[test]
+fn icon_delete_draws_trash_can_pieces() {
+    let mut r = IconRecorder::default();
+    Icon::draw_delete(&mut r, icon_bounds(), Color::WHITE);
+    // body (rounded), lid (plain rect), handle (rounded)
+    assert!(r.fill_rounded_rect >= 2);
+    assert!(r.fill_rect >= 1);
+}
+
+#[test]
+fn icon_file_draws_polygons() {
+    let mut r = IconRecorder::default();
+    Icon::draw_file(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_polygon >= 2, "file draws main body + corner fold");
+}
+
+#[test]
+fn icon_search_draws_ellipse_and_handle_line() {
+    let mut r = IconRecorder::default();
+    Icon::draw_search(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.draw_ellipse > 0, "search draws the magnifying-glass circle");
+    assert!(r.draw_line > 0, "search draws the handle");
+}
+
+#[test]
+fn icon_chevron_right_draws_two_lines() {
+    let mut r = IconRecorder::default();
+    Icon::draw_chevron_right(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.draw_line >= 2, "chevron is two line segments");
+}
+
+#[test]
+fn icon_gear_draws_polygon_and_center_hole() {
+    let mut r = IconRecorder::default();
+    Icon::draw_gear(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_polygon > 0, "gear draws a star polygon");
+    assert!(r.fill_ellipse > 0, "gear punches a center hole");
+}
+
+#[test]
+fn icon_palette_draws_two_ellipses() {
+    let mut r = IconRecorder::default();
+    Icon::draw_palette(&mut r, icon_bounds(), Color::WHITE);
+    assert!(r.fill_ellipse >= 2, "palette = body + thumb hole");
+}
+
+#[test]
+fn icon_info_draws_circle_and_dot_and_stem() {
+    let mut r = IconRecorder::default();
+    Icon::draw_info(&mut r, Point::new(0, 0), 24);
+    assert!(r.draw_circle > 0, "info draws the surrounding circle");
+    assert!(r.fill_circle > 0, "info draws the dot of the i");
+    assert!(r.draw_line > 0, "info draws the stem of the i");
+}
+
+#[test]
+fn icon_check_draws_two_lines() {
+    let mut r = IconRecorder::default();
+    Icon::draw_check(&mut r, Point::new(0, 0), 24);
+    assert_eq!(r.draw_line, 2, "checkmark is exactly two line segments");
+}
+
+#[test]
+fn icon_warning_draws_triangle_and_exclamation() {
+    let mut r = IconRecorder::default();
+    Icon::draw_warning(&mut r, Point::new(0, 0), 24);
+    // Triangle = 3 lines + exclamation stem = 1 line; fill_circle for dot.
+    assert!(r.draw_line >= 4);
+    assert!(r.fill_circle > 0);
+}
+
+#[test]
+fn icon_error_draws_circle_and_x() {
+    let mut r = IconRecorder::default();
+    Icon::draw_error(&mut r, Point::new(0, 0), 24);
+    assert!(r.draw_circle > 0);
+    assert_eq!(r.draw_line, 2, "X is two crossed lines");
+}
+
+#[test]
+fn icon_close_draws_x() {
+    let mut r = IconRecorder::default();
+    Icon::draw_close(&mut r, Point::new(12, 12), 16);
+    assert_eq!(r.draw_line, 2, "close icon is an X = two lines");
+}
+
+#[test]
+fn icon_handles_zero_sized_bounds_without_panicking() {
+    // Defensive: many draw_* methods compute size from bounds; a zero-sized
+    // rect could divide-by-zero or produce huge negative ints. Lock in
+    // panic-free behavior.
+    let mut r = IconRecorder::default();
+    let zero = Rect::new(0, 0, 0, 0);
+    Icon::draw_back_arrow(&mut r, zero, Color::WHITE);
+    Icon::draw_forward_arrow(&mut r, zero, Color::WHITE);
+    Icon::draw_up_arrow(&mut r, zero, Color::WHITE);
+    Icon::draw_home(&mut r, zero, Color::WHITE);
+    Icon::draw_refresh(&mut r, zero, Color::WHITE);
+    Icon::draw_folder(&mut r, zero, Color::WHITE);
+    Icon::draw_folder_new(&mut r, zero, Color::WHITE);
+    Icon::draw_delete(&mut r, zero, Color::WHITE);
+    Icon::draw_file(&mut r, zero, Color::WHITE);
+    Icon::draw_search(&mut r, zero, Color::WHITE);
+    Icon::draw_chevron_right(&mut r, zero, Color::WHITE);
+    Icon::draw_gear(&mut r, zero, Color::WHITE);
+    Icon::draw_palette(&mut r, zero, Color::WHITE);
 }

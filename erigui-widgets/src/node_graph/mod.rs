@@ -3313,7 +3313,7 @@ impl Widget for NodeGraph {
     }
 
     fn can_focus(&self) -> bool {
-        true
+        self.state.enabled && self.state.visible
     }
 
     fn is_focused(&self) -> bool {

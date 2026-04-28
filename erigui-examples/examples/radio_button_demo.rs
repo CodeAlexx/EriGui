@@ -1,6 +1,8 @@
 use erigui_core::*;
 use erigui_rendering::Renderer;
 use erigui_widgets::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -35,41 +37,57 @@ struct RadioButtonDemo {
 
 impl RadioButtonDemo {
     fn new() -> Self {
-        // Size selection group (group_id = 1)
-        let size_small = RadioButton::new(WidgetId::default(), "Small", 1)
+        // One host-owned RadioGroup per logical mutual-exclusion set.
+        // Replaces the deleted `RadioGroupManager` global singleton.
+        let size_group = Rc::new(RefCell::new(RadioGroup::new()));
+        let color_group = Rc::new(RefCell::new(RadioGroup::new()));
+        let position_group = Rc::new(RefCell::new(RadioGroup::new()));
+
+        // Size selection group
+        let size_small = RadioButton::new(WidgetId::default(), "Small")
+            .with_group(size_group.clone())
             .with_on_change(|_| println!("Size: Small selected"));
 
-        let size_medium = RadioButton::new(WidgetId::default(), "Medium", 1)
+        let size_medium = RadioButton::new(WidgetId::default(), "Medium")
             .with_checked(true)
+            .with_group(size_group.clone())
             .with_on_change(|_| println!("Size: Medium selected"));
 
-        let size_large = RadioButton::new(WidgetId::default(), "Large", 1)
+        let size_large = RadioButton::new(WidgetId::default(), "Large")
+            .with_group(size_group)
             .with_on_change(|_| println!("Size: Large selected"));
 
-        // Color selection group (group_id = 2)
-        let color_red = RadioButton::new(WidgetId::default(), "Red", 2)
+        // Color selection group
+        let color_red = RadioButton::new(WidgetId::default(), "Red")
             .with_checked(true)
+            .with_group(color_group.clone())
             .with_on_change(|_| println!("Color: Red selected"));
 
-        let color_green = RadioButton::new(WidgetId::default(), "Green", 2)
+        let color_green = RadioButton::new(WidgetId::default(), "Green")
+            .with_group(color_group.clone())
             .with_on_change(|_| println!("Color: Green selected"));
 
-        let color_blue = RadioButton::new(WidgetId::default(), "Blue", 2)
+        let color_blue = RadioButton::new(WidgetId::default(), "Blue")
+            .with_group(color_group)
             .with_on_change(|_| println!("Color: Blue selected"));
 
-        // Label position demonstration (group_id = 3)
-        let pos_left = RadioButton::new(WidgetId::default(), "Label Left", 3)
+        // Label position demonstration
+        let pos_left = RadioButton::new(WidgetId::default(), "Label Left")
             .with_label_position(LabelPosition::Left)
-            .with_checked(true);
+            .with_checked(true)
+            .with_group(position_group.clone());
 
-        let pos_right = RadioButton::new(WidgetId::default(), "Label Right", 3)
-            .with_label_position(LabelPosition::Right);
+        let pos_right = RadioButton::new(WidgetId::default(), "Label Right")
+            .with_label_position(LabelPosition::Right)
+            .with_group(position_group.clone());
 
-        let pos_top = RadioButton::new(WidgetId::default(), "Label Top", 3)
-            .with_label_position(LabelPosition::Top);
+        let pos_top = RadioButton::new(WidgetId::default(), "Label Top")
+            .with_label_position(LabelPosition::Top)
+            .with_group(position_group.clone());
 
-        let pos_bottom = RadioButton::new(WidgetId::default(), "Label Bottom", 3)
-            .with_label_position(LabelPosition::Bottom);
+        let pos_bottom = RadioButton::new(WidgetId::default(), "Label Bottom")
+            .with_label_position(LabelPosition::Bottom)
+            .with_group(position_group);
 
         Self {
             size_small,

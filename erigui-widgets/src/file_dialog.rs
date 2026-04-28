@@ -38,12 +38,19 @@ impl FileFilter {
             return true;
         }
 
+        // The "*" sentinel matches any path, including extensionless
+        // ones like "Makefile" or "README". Mirrors native picker
+        // behavior across macOS / Windows / GTK.
+        if self.extensions.iter().any(|e| e == "*") {
+            return true;
+        }
+
         if let Some(ext) = path.extension() {
             if let Some(ext_str) = ext.to_str() {
                 return self
                     .extensions
                     .iter()
-                    .any(|e| e == "*" || e.eq_ignore_ascii_case(ext_str));
+                    .any(|e| e.eq_ignore_ascii_case(ext_str));
             }
         }
 

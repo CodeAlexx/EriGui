@@ -723,17 +723,17 @@ fn file_filter_matches_multiple_extensions() {
 }
 
 #[test]
-fn file_filter_wildcard_matches_anything_with_extension() {
-    // The "*" sentinel matches any extension. NOTE: the impl only
-    // returns true if the path HAS an extension -- a pathless name
-    // like "Makefile" returns false even with the "*" filter.
+fn file_filter_wildcard_matches_anything() {
+    // The "*" sentinel matches any path, with or without an extension.
+    // Native pickers treat extensionless names ("Makefile", "README")
+    // as included under "All Files".
     let f = FileFilter::new("All", vec!["*"]);
     assert!(f.matches(std::path::Path::new("a.png")));
     assert!(f.matches(std::path::Path::new("a.bin")));
     assert!(f.matches(std::path::Path::new("a.txt")));
     assert!(
-        !f.matches(std::path::Path::new("Makefile")),
-        "wildcard filter requires an extension to be present (current contract)"
+        f.matches(std::path::Path::new("Makefile")),
+        "wildcard filter must match extensionless paths"
     );
 }
 

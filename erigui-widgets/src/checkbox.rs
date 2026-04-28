@@ -188,9 +188,23 @@ impl Widget for Checkbox {
                     && self.state.bounds.contains(mouse_event.position)
                 {
                     self.toggle();
+                    self.state.focused = true;
                     EventResult::Consumed
                 } else {
                     EventResult::Ignored
+                }
+            }
+
+            // Keyboard toggle — Space and Enter, when focused.
+            // Standard accessibility behavior.
+            Event::KeyPress(ev) if self.state.focused => {
+                use erigui_core::Key;
+                match ev.key {
+                    Key::Space | Key::Enter => {
+                        self.toggle();
+                        EventResult::Consumed
+                    }
+                    _ => EventResult::Ignored,
                 }
             }
 
@@ -223,10 +237,12 @@ impl Widget for Checkbox {
     }
 
     fn is_focused(&self) -> bool {
-        false
+        self.state.focused
     }
 
-    fn set_focused(&mut self, _focused: bool) {}
+    fn set_focused(&mut self, focused: bool) {
+        self.state.focused = focused;
+    }
 
     fn can_focus(&self) -> bool {
         self.state.enabled

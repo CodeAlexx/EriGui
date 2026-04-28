@@ -1,6 +1,6 @@
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, Point, Rect, Size, Theme,
-    Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, LayoutConstraints, Modifiers, MouseButton, Point, Rect,
+    Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -277,6 +277,41 @@ impl Widget for Slider {
                 }
             }
 
+            // Keyboard nudge — only when focused. Arrow keys step the
+            // slider; Page keys step bigger; Home/End jump to bounds.
+            // Held SHIFT = larger step.
+            Event::KeyPress(ev) if self.state.focused => {
+                let range = self.max_value - self.min_value;
+                let small = range / 100.0;
+                let large = range / 10.0;
+                let big = ev.modifiers.contains(Modifiers::SHIFT);
+                let step = if big { large } else { small };
+                let (decrement, increment) = match self.orientation {
+                    SliderOrientation::Horizontal => (Key::Left, Key::Right),
+                    SliderOrientation::Vertical => (Key::Down, Key::Up),
+                };
+                if ev.key == decrement {
+                    self.set_value(self.current_value - step);
+                    EventResult::Consumed
+                } else if ev.key == increment {
+                    self.set_value(self.current_value + step);
+                    EventResult::Consumed
+                } else if ev.key == Key::PageDown {
+                    self.set_value(self.current_value - large);
+                    EventResult::Consumed
+                } else if ev.key == Key::PageUp {
+                    self.set_value(self.current_value + large);
+                    EventResult::Consumed
+                } else if ev.key == Key::Home {
+                    self.set_value(self.min_value);
+                    EventResult::Consumed
+                } else if ev.key == Key::End {
+                    self.set_value(self.max_value);
+                    EventResult::Consumed
+                } else {
+                    EventResult::Ignored
+                }
+            }
             _ => EventResult::Ignored,
         }
     }
@@ -310,10 +345,12 @@ impl Widget for Slider {
     }
 
     fn is_focused(&self) -> bool {
-        false
+        self.state.focused
     }
 
-    fn set_focused(&mut self, _focused: bool) {}
+    fn set_focused(&mut self, focused: bool) {
+        self.state.focused = focused;
+    }
 
     fn can_focus(&self) -> bool {
         self.state.enabled

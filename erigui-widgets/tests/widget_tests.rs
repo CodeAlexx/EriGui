@@ -390,3 +390,124 @@ fn combo_box_text_input_ignored_when_closed() {
         "closed ComboBox should NOT consume Event::TextInput"
     );
 }
+
+// ============================================================================
+// Focus + keyboard tests for Slider and Checkbox (overnight audit, 2026-04-28)
+// Both had set_focused as a no-op, making `can_focus = true` a lie. Both also
+// had no keyboard support — the user had to use mouse exclusively.
+// ============================================================================
+
+use erigui_core::{Key, KeyPressEvent, Modifiers};
+
+#[test]
+fn slider_focus_state_round_trips() {
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0);
+    assert!(!s.is_focused());
+    s.set_focused(true);
+    assert!(s.is_focused());
+    s.set_focused(false);
+    assert!(!s.is_focused());
+}
+
+#[test]
+fn slider_arrow_keys_step_when_focused() {
+    let theme = default_theme();
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0);
+    s.layout(Rect::new(0, 0, 200, 30), &theme);
+    s.set_focused(true);
+
+    let key_right = Event::KeyPress(KeyPressEvent {
+        key: Key::Right,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    let r = s.handle_event(&key_right, &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert!(
+        s.value() > 50.0,
+        "Right arrow should increase slider value, got {}",
+        s.value()
+    );
+
+    let before = s.value();
+    let key_left = Event::KeyPress(KeyPressEvent {
+        key: Key::Left,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    s.handle_event(&key_left, &theme);
+    assert!(
+        s.value() < before,
+        "Left arrow should decrease slider value, got {}",
+        s.value()
+    );
+}
+
+#[test]
+fn slider_keys_ignored_when_unfocused() {
+    let theme = default_theme();
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0);
+    s.layout(Rect::new(0, 0, 200, 30), &theme);
+    // Not focused.
+
+    let before = s.value();
+    let r = s.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Right,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(s.value(), before, "unfocused slider must not respond to keys");
+}
+
+#[test]
+fn checkbox_focus_state_round_trips() {
+    let mut c = Checkbox::new(test_id(), "x");
+    assert!(!c.is_focused());
+    c.set_focused(true);
+    assert!(c.is_focused());
+    c.set_focused(false);
+    assert!(!c.is_focused());
+}
+
+#[test]
+fn checkbox_space_toggles_when_focused() {
+    let theme = default_theme();
+    let mut c = Checkbox::new(test_id(), "x");
+    c.layout(Rect::new(0, 0, 100, 24), &theme);
+    c.set_focused(true);
+
+    let initial = c.is_checked();
+    let r = c.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Space,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    assert_eq!(r, EventResult::Consumed);
+    assert_ne!(c.is_checked(), initial, "Space must toggle a focused checkbox");
+}
+
+#[test]
+fn checkbox_keys_ignored_when_unfocused() {
+    let theme = default_theme();
+    let mut c = Checkbox::new(test_id(), "x");
+    c.layout(Rect::new(0, 0, 100, 24), &theme);
+
+    let initial = c.is_checked();
+    let r = c.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Space,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(c.is_checked(), initial);
+}

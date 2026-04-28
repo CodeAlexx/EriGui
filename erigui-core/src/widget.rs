@@ -139,7 +139,6 @@ pub struct WidgetState {
     pub visible: bool,
     pub enabled: bool,
     pub focused: bool,
-    pub tooltip: Option<String>,
 }
 
 impl WidgetState {
@@ -150,7 +149,6 @@ impl WidgetState {
             visible: true,
             enabled: true,
             focused: false,
-            tooltip: None,
         }
     }
 }
@@ -163,7 +161,6 @@ impl Default for WidgetState {
             visible: true,
             enabled: true,
             focused: false,
-            tooltip: None,
         }
     }
 }
@@ -208,7 +205,6 @@ mod tests {
         assert!(s.visible);
         assert!(s.enabled);
         assert!(!s.focused);
-        assert!(s.tooltip.is_none());
         assert_eq!(s.bounds, Rect::default());
     }
 
@@ -219,7 +215,6 @@ mod tests {
         assert!(s.visible);
         assert!(s.enabled);
         assert!(!s.focused);
-        assert!(s.tooltip.is_none());
     }
 
     #[test]
@@ -228,12 +223,10 @@ mod tests {
         s.visible = false;
         s.enabled = false;
         s.focused = true;
-        s.tooltip = Some("hi".to_string());
         s.bounds = Rect::new(1, 2, 3, 4);
         assert!(!s.visible);
         assert!(!s.enabled);
         assert!(s.focused);
-        assert_eq!(s.tooltip.as_deref(), Some("hi"));
         assert_eq!(s.bounds, Rect::new(1, 2, 3, 4));
     }
 }

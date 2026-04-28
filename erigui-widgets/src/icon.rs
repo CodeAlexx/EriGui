@@ -315,7 +315,12 @@ impl Icon {
         context.draw_line(points[1], points[2], 2);
     }
 
-    pub fn draw_gear(context: &mut dyn DrawContext, bounds: Rect, color: Color) {
+    pub fn draw_gear(
+        context: &mut dyn DrawContext,
+        bounds: Rect,
+        color: Color,
+        bg_color: Color,
+    ) {
         let center = bounds.center();
         let outer_radius = bounds.width().min(bounds.height()) as f32 * 0.4;
         let inner_radius = outer_radius * 0.6;
@@ -340,8 +345,11 @@ impl Icon {
 
         context.fill_polygon(&points);
 
-        // Draw center hole
-        context.set_color(color.with_alpha(0));
+        // Draw center hole. Re-fill with the surface/background color
+        // rather than `color.with_alpha(0)` -- alpha-zero is a no-op
+        // pixel paint, so the hole would never appear over the gear
+        // body. Caller passes the underlying surface color.
+        context.set_color(bg_color);
         context.fill_ellipse(
             center,
             (inner_radius * 0.5) as i32,
@@ -350,7 +358,12 @@ impl Icon {
         );
     }
 
-    pub fn draw_palette(context: &mut dyn DrawContext, bounds: Rect, color: Color) {
+    pub fn draw_palette(
+        context: &mut dyn DrawContext,
+        bounds: Rect,
+        color: Color,
+        bg_color: Color,
+    ) {
         // Draw artist's palette icon
         let center = bounds.center();
         let width = bounds.width() as f32 * 0.8;
@@ -367,8 +380,9 @@ impl Icon {
             32,
         );
 
-        // Draw thumb hole
-        context.set_color(color.with_alpha(0));
+        // Draw thumb hole. Same fix as draw_gear: alpha-zero never
+        // erases pixels, so paint the hole in the surface color.
+        context.set_color(bg_color);
         let hole_x = (center.x as f32 - width * 0.2) as i32;
         let hole_y = (center.y as f32 - height * 0.1) as i32;
         context.fill_ellipse(

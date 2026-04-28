@@ -642,11 +642,20 @@ struct IconRecorder {
     fill_polygon: usize,
     set_line_width: usize,
     draw_image: usize,
+    /// Most recent color passed to set_color. Used by hole-fill tests
+    /// to verify that a draw routine paints the body in one color and
+    /// re-fills the hole in a distinct background color.
+    current_color: Color,
+    /// Color in effect at each fill_ellipse call, in order. Lets a
+    /// test assert "fill_ellipse #0 used color X, fill_ellipse #1
+    /// used color Y" without a real renderer.
+    fill_ellipse_colors: Vec<Color>,
 }
 
 impl DrawContext for IconRecorder {
-    fn set_color(&mut self, _color: Color) {
+    fn set_color(&mut self, color: Color) {
         self.set_color += 1;
+        self.current_color = color;
     }
     fn draw_rect(&mut self, _rect: Rect) {
         self.draw_rect += 1;
@@ -709,6 +718,7 @@ impl DrawContext for IconRecorder {
     }
     fn fill_ellipse(&mut self, _center: Point, _rx: i32, _ry: i32, _segments: i32) {
         self.fill_ellipse += 1;
+        self.fill_ellipse_colors.push(self.current_color);
     }
     fn draw_polygon(&mut self, _points: &[Point]) {
         self.draw_polygon += 1;
@@ -816,17 +826,46 @@ fn icon_chevron_right_draws_two_lines() {
 
 #[test]
 fn icon_gear_draws_polygon_and_center_hole() {
+    // The gear paints its body in `color` and its center hole in
+    // `bg_color` (typically theme.colors.surface). Previously the
+    // hole was painted in `color.with_alpha(0)`, which is a no-op
+    // pixel paint -- the hole was invisible. Lock in that the hole
+    // ellipse is drawn in a color DIFFERENT from the body color.
     let mut r = IconRecorder::default();
-    Icon::draw_gear(&mut r, icon_bounds(), Color::WHITE);
+    let body = Color::WHITE;
+    let bg = Color::rgb(20, 20, 20);
+    Icon::draw_gear(&mut r, icon_bounds(), body, bg);
     assert!(r.fill_polygon > 0, "gear draws a star polygon");
     assert!(r.fill_ellipse > 0, "gear punches a center hole");
+    // The most recent fill_ellipse must use bg_color, not body color.
+    let last = r
+        .fill_ellipse_colors
+        .last()
+        .copied()
+        .expect("gear must call fill_ellipse for the hole");
+    assert_eq!(
+        last, bg,
+        "center hole must be painted in bg_color, not body color"
+    );
+    assert_ne!(
+        last, body,
+        "hole must NOT be the body color (would not punch a hole)"
+    );
 }
 
 #[test]
 fn icon_palette_draws_two_ellipses() {
+    // The palette paints its body in `color` and its thumb hole in
+    // `bg_color`. fill_ellipse #0 = body, fill_ellipse #1 = hole.
     let mut r = IconRecorder::default();
-    Icon::draw_palette(&mut r, icon_bounds(), Color::WHITE);
+    let body = Color::WHITE;
+    let bg = Color::rgb(20, 20, 20);
+    Icon::draw_palette(&mut r, icon_bounds(), body, bg);
     assert!(r.fill_ellipse >= 2, "palette = body + thumb hole");
+    let colors = &r.fill_ellipse_colors;
+    assert_eq!(colors[0], body, "palette body uses body color");
+    assert_eq!(colors[1], bg, "thumb hole uses bg_color");
+    assert_ne!(colors[0], colors[1], "body and hole must differ");
 }
 
 #[test]
@@ -887,6 +926,6 @@ fn icon_handles_zero_sized_bounds_without_panicking() {
     Icon::draw_file(&mut r, zero, Color::WHITE);
     Icon::draw_search(&mut r, zero, Color::WHITE);
     Icon::draw_chevron_right(&mut r, zero, Color::WHITE);
-    Icon::draw_gear(&mut r, zero, Color::WHITE);
-    Icon::draw_palette(&mut r, zero, Color::WHITE);
+    Icon::draw_gear(&mut r, zero, Color::WHITE, Color::BLACK);
+    Icon::draw_palette(&mut r, zero, Color::WHITE, Color::BLACK);
 }

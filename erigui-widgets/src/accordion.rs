@@ -307,8 +307,18 @@ impl Accordion {
             match icon_name.as_str() {
                 "folder" => Icon::draw_folder(context, custom_icon_rect, icon_color),
                 "file" => Icon::draw_file(context, custom_icon_rect, icon_color),
-                "settings" => Icon::draw_gear(context, custom_icon_rect, icon_color),
-                "palette" => Icon::draw_palette(context, custom_icon_rect, icon_color),
+                "settings" => Icon::draw_gear(
+                    context,
+                    custom_icon_rect,
+                    icon_color,
+                    theme.colors.surface,
+                ),
+                "palette" => Icon::draw_palette(
+                    context,
+                    custom_icon_rect,
+                    icon_color,
+                    theme.colors.surface,
+                ),
                 _ => {}
             }
 

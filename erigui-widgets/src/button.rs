@@ -1,4 +1,5 @@
 use crate::icon::Icon;
+use crate::tooltip::TooltipState;
 use erigui_core::{
     Color, DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent,
     Point, Rect, Size, Theme, Widget, WidgetId, WidgetState,
@@ -19,6 +20,7 @@ pub struct Button {
     pressed: bool,
     hovered: bool,
     style: ButtonStyle,
+    tooltip: Option<TooltipState>,
 }
 
 pub enum ButtonIcon {
@@ -50,6 +52,7 @@ impl Button {
             pressed: false,
             hovered: false,
             style: ButtonStyle::Primary,
+            tooltip: None,
         }
     }
 
@@ -68,8 +71,19 @@ impl Button {
         self
     }
 
+    /// Attach a hover tooltip to this button. The tooltip auto-shows
+    /// after a 500 ms hover and hides on mouse-leave or any click —
+    /// the button drives its own `TooltipState` from `handle_event`.
     pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
-        self.state.tooltip = Some(tooltip.into());
+        self.tooltip = Some(TooltipState::new(tooltip));
+        self
+    }
+
+    /// Variant of `with_tooltip` that lets the caller pre-configure
+    /// position and delay. Use when defaults aren't right for the
+    /// widget — e.g. screen-edge buttons need `Position::Below`.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
         self
     }
 
@@ -248,11 +262,28 @@ impl Widget for Button {
             let text_pos = Point::new(x, bounds.center().y - text_size.height / 2);
             context.draw_text(&self.text, text_pos, theme.typography.font_size_base);
         }
+
+        // Tooltip overlays the button bounds. Drawn last so the button
+        // chrome doesn't paint on top of the tooltip text.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
+            // Disabled/hidden buttons should not show a stale tooltip.
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
             return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility off the same event stream the
+        // button uses. Done before the match so a press event hides
+        // the tooltip even when the press also triggers on_click.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
         }
 
         match event {

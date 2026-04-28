@@ -22,6 +22,28 @@ pub struct ListView {
     scroll_offset: i32,
     on_selection_change: Option<Box<dyn FnMut(Option<usize>)>>,
     multi_select: bool,
+    /// `Some(_)` while the user is mid-drag on the scrollbar thumb.
+    drag: Option<ScrollbarDrag>,
+}
+
+/// Captured at MouseButton press inside the scrollbar thumb. We track the
+/// mouse position and scroll_offset at press time so MouseMove deltas map
+/// to scroll deltas independent of where on the thumb the click landed.
+#[derive(Clone, Copy)]
+struct ScrollbarDrag {
+    start_mouse_y: i32,
+    start_offset: i32,
+}
+
+/// Geometry of the visible scrollbar. `None` when content fits the viewport
+/// (no scrollbar drawn, no hit target).
+struct ScrollbarGeometry {
+    track: Rect,
+    thumb: Rect,
+    /// `track.height() - thumb.height()`. Mouse can move the top of the
+    /// thumb anywhere in `[track.y, track.y + max_thumb_y]`. Used to scale
+    /// mouse Y delta into scroll-offset delta during drag.
+    max_thumb_y: i32,
 }
 
 impl ListView {
@@ -34,7 +56,42 @@ impl ListView {
             scroll_offset: 0,
             on_selection_change: None,
             multi_select: false,
+            drag: None,
         }
+    }
+
+    /// Compute the scrollbar track + thumb rects. Returns `None` when no
+    /// scrollbar is needed (content fits viewport). Single source of truth
+    /// shared between `draw` and the drag hit-test.
+    fn scrollbar_geometry(&self) -> Option<ScrollbarGeometry> {
+        let max = self.max_scroll();
+        if max <= 0 {
+            return None;
+        }
+        const TRACK_W: i32 = 8;
+        let track = Rect::new(
+            self.state.bounds.right() - TRACK_W,
+            self.state.bounds.y(),
+            TRACK_W,
+            self.state.bounds.height(),
+        );
+        let viewport_h = self.state.bounds.height();
+        let content_h = self.content_height();
+        let thumb_h_raw = ((viewport_h as f32 / content_h as f32) * track.height() as f32) as i32;
+        let thumb_h = thumb_h_raw.max(20).min(track.height());
+        let max_thumb_y = track.height() - thumb_h;
+        let thumb_y_offset = if max > 0 && max_thumb_y > 0 {
+            ((self.scroll_offset as f32 / max as f32) * max_thumb_y as f32) as i32
+        } else {
+            0
+        };
+        let thumb = Rect::new(
+            track.x() + 1,
+            track.y() + thumb_y_offset,
+            TRACK_W - 2,
+            thumb_h,
+        );
+        Some(ScrollbarGeometry { track, thumb, max_thumb_y })
     }
 
     /// Total content height (items × item_height). May exceed bounds.height.
@@ -210,37 +267,11 @@ impl Widget for ListView {
         }
 
         // Vertical scrollbar — only drawn when content exceeds viewport.
-        // Track on the right edge of the bounds; thumb proportional to
-        // viewport/content ratio. Visual only — actual scrolling is
-        // wheel-driven (drag-the-thumb to scroll is a follow-up).
-        let max = self.max_scroll();
-        if max > 0 {
-            const TRACK_W: i32 = 8;
-            let track = Rect::new(
-                self.state.bounds.right() - TRACK_W,
-                self.state.bounds.y(),
-                TRACK_W,
-                self.state.bounds.height(),
-            );
+        if let Some(g) = self.scrollbar_geometry() {
             context.set_color(theme.colors.surface_variant);
-            context.fill_rect(track);
-
-            let viewport_h = self.state.bounds.height();
-            let content_h = self.content_height();
-            let thumb_h =
-                ((viewport_h as f32 / content_h as f32) * track.height() as f32) as i32;
-            let thumb_h = thumb_h.max(20).min(track.height());
-            let max_thumb_y = track.height() - thumb_h;
-            let thumb_y = ((self.scroll_offset as f32 / max as f32)
-                * max_thumb_y as f32) as i32;
-            let thumb = Rect::new(
-                track.x() + 1,
-                track.y() + thumb_y,
-                TRACK_W - 2,
-                thumb_h,
-            );
+            context.fill_rect(g.track);
             context.set_color(theme.colors.border);
-            context.fill_rect(thumb);
+            context.fill_rect(g.thumb);
         }
 
         // Draw border
@@ -251,6 +282,59 @@ impl Widget for ListView {
     fn handle_event(&mut self, event: &Event, _theme: &Theme) -> EventResult {
         if !self.state.enabled || !self.state.visible {
             return EventResult::Ignored;
+        }
+
+        // Scrollbar drag: thumb hit-test runs BEFORE item-click so a press
+        // on the thumb doesn't double-fire as an item selection underneath.
+        match event {
+            Event::MouseButton(MouseButtonEvent {
+                button: MouseButton::Left,
+                position,
+                pressed: true,
+                ..
+            }) => {
+                if let Some(g) = self.scrollbar_geometry() {
+                    if g.thumb.contains(*position) {
+                        self.drag = Some(ScrollbarDrag {
+                            start_mouse_y: position.y,
+                            start_offset: self.scroll_offset,
+                        });
+                        self.state.focused = true;
+                        return EventResult::Consumed;
+                    }
+                }
+            }
+            Event::MouseMove(ev) => {
+                if let Some(d) = self.drag {
+                    if let Some(g) = self.scrollbar_geometry() {
+                        let dy_mouse = ev.position.y - d.start_mouse_y;
+                        // Map thumb-y delta back to scroll-offset delta.
+                        // max_thumb_y > 0 because geometry returned Some
+                        // (max_scroll > 0) and `min(track.height())` only
+                        // collapses when track.height() is tiny — guard
+                        // anyway to avoid div-by-zero when ranges align.
+                        if g.max_thumb_y > 0 {
+                            let max = self.max_scroll();
+                            let dy_scroll = (dy_mouse as f32 / g.max_thumb_y as f32
+                                * max as f32) as i32;
+                            self.scroll_offset = d.start_offset.saturating_add(dy_scroll);
+                            self.clamp_scroll();
+                        }
+                        return EventResult::Consumed;
+                    }
+                }
+            }
+            Event::MouseButton(MouseButtonEvent {
+                button: MouseButton::Left,
+                pressed: false,
+                ..
+            }) => {
+                if self.drag.is_some() {
+                    self.drag = None;
+                    return EventResult::Consumed;
+                }
+            }
+            _ => {}
         }
 
         if let Event::MouseButton(MouseButtonEvent {

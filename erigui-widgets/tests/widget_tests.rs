@@ -689,6 +689,170 @@ fn list_view_arrow_down_auto_scrolls_to_keep_selected_visible() {
     );
 }
 
+// ----- ListView scrollbar drag (item #3 from production handoff) -----
+//
+// Layout used below: 50 items × 24px = 1200px content, viewport 240px on
+// bounds (0,0,200,240). Track at x=192..200; thumb_h = 240/1200 * 240 = 48,
+// so at scroll_offset=0 the thumb spans y=[0,48] and a click at (195, 24)
+// lands solidly inside it. max_thumb_y = 192, max_scroll = 960.
+
+#[test]
+fn list_view_drag_thumb_scrolls_content() {
+    use erigui_core::{Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, Point};
+    let theme = default_theme();
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+    assert_eq!(lv.scroll_offset(), 0);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 24),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&press, &theme);
+    assert_eq!(r, EventResult::Consumed, "press inside thumb should consume");
+    assert_eq!(lv.scroll_offset(), 0, "press alone shouldn't move scroll");
+
+    // Drag mouse down 96px. Expected scroll: 96 * (max_scroll / max_thumb_y)
+    // = 96 * (960 / 192) = 480.
+    let mv = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 120),
+        delta: Point::new(0, 96),
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&mv, &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(lv.scroll_offset(), 480, "drag should map mouse Y to scroll proportionally");
+}
+
+#[test]
+fn list_view_drag_release_stops_tracking() {
+    use erigui_core::{Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, Point};
+    let theme = default_theme();
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 24),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&press, &theme);
+
+    let mv1 = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 60),
+        delta: Point::new(0, 36),
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&mv1, &theme);
+    let after_drag = lv.scroll_offset();
+    assert!(after_drag > 0);
+
+    let release = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 60),
+        pressed: false,
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&release, &theme);
+    assert_eq!(r, EventResult::Consumed, "release while dragging consumes");
+
+    // Subsequent move should NOT change scroll.
+    let mv2 = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 200),
+        delta: Point::new(0, 140),
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&mv2, &theme);
+    assert_eq!(r, EventResult::Ignored, "move after release should not be consumed");
+    assert_eq!(lv.scroll_offset(), after_drag, "scroll must not change after release");
+}
+
+#[test]
+fn list_view_drag_past_end_clamps_at_max() {
+    use erigui_core::{Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, Point};
+    let theme = default_theme();
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 24),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&press, &theme);
+
+    // Mouse Y 9999 → would compute scroll way past max; must clamp.
+    let mv = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 9999),
+        delta: Point::new(0, 9975),
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&mv, &theme);
+    // max_scroll = 50*24 - 240 = 960.
+    assert_eq!(lv.scroll_offset(), 960, "drag past end clamps to max_scroll");
+}
+
+#[test]
+fn list_view_drag_when_no_overflow_does_nothing() {
+    use erigui_core::{Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, Point};
+    let theme = default_theme();
+    // Short list — no scrollbar drawn.
+    let mut lv = list_with(3);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 24),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&press, &theme);
+    // Could be Consumed (item-click hit-test fires) but the important assert
+    // is no drag was engaged: a subsequent MouseMove must NOT scroll.
+    let _ = r;
+
+    let mv = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 200),
+        delta: Point::new(0, 176),
+        modifiers: Modifiers::empty(),
+    });
+    let r2 = lv.handle_event(&mv, &theme);
+    assert_eq!(r2, EventResult::Ignored, "no drag → move ignored");
+    assert_eq!(lv.scroll_offset(), 0, "no overflow → no scroll possible");
+}
+
+#[test]
+fn list_view_press_on_track_outside_thumb_does_not_drag() {
+    use erigui_core::{Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, Point};
+    let theme = default_theme();
+    let mut lv = list_with(50);
+    lv.layout(Rect::new(0, 0, 200, 240), &theme);
+
+    // Thumb spans y=[0,48] at offset=0. y=200 is in the track but below the
+    // thumb. Currently a no-op (click could later become page-jump; not yet).
+    let press = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(195, 200),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    lv.handle_event(&press, &theme);
+
+    // Move to confirm no drag was engaged.
+    let mv = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(195, 100),
+        delta: Point::new(0, -100),
+        modifiers: Modifiers::empty(),
+    });
+    let r = lv.handle_event(&mv, &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(lv.scroll_offset(), 0, "track-but-not-thumb press shouldn't drag");
+}
+
 #[test]
 fn button_space_enter_fires_when_focused() {
     use std::cell::RefCell;

@@ -65,26 +65,28 @@ present on this Linux box. Cross-platform: Win32
 `zenity`/`kdialog`/`qarma` — picked over `rfd` because rfd drags
 GTK.
 
-### 3. TabControl not focusable
+### 3. ScrollBar drag-to-scroll — **DONE 2026-04-28**
+Shipped: `ListView` now has a `ScrollbarDrag` state field. On
+MouseButton-Left press inside the thumb rect, drag captures
+`(start_mouse_y, start_offset)`; subsequent MouseMove deltas map back
+to `scroll_offset` via `dy_mouse * (max_scroll / max_thumb_y)` and
+clamp; release clears the drag. The scrollbar geometry computation
+was factored into a single helper `scrollbar_geometry()` shared
+between `draw` and the hit-test so they can't drift. Thumb hit-test
+runs BEFORE item-click so a press on the thumb doesn't double-fire
+selection underneath. Pressing in the track but outside the thumb is
+still a no-op (page-jump deferred). 5 new tests covering: drag
+scrolls, drag-then-release stops tracking, drag past end clamps to
+max_scroll, no-overflow lists ignore drag, track-but-not-thumb press
+doesn't engage. Workspace: **322 passed**, 0 failed.
+
+### 4. TabControl not focusable
 **Symptom**: `can_focus()` returns `false`, `set_focused` is a no-op.
 Hosts can't direct focus to it, so Ctrl+Tab style tab navigation is
 impossible.
 
 **Fix**: same pattern as Slider/Checkbox/ListView — make focus state
 real, add Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 keyboard handling.
-
-### 4. ScrollBar drag-to-scroll
-**Symptom**: ListView shows a scrollbar but the thumb isn't draggable
-— mouse wheel and arrow keys are the only way to scroll.
-
-**Fix**: in `list_view.rs` `handle_event`:
-- On MouseButton press inside the thumb rect: start dragging, track
-  `drag_start_y` and `drag_start_offset`.
-- On MouseMove while dragging: compute delta, scale by
-  `content_height / track_height`, update `scroll_offset`, clamp.
-- On MouseButton release: stop dragging.
-
-About 40 lines, all CPU-testable.
 
 ## Soft blockers (production-quality polish)
 
@@ -163,18 +165,16 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 
 ## Concrete next-session task list (priority order)
 
-1. ~~**HiDPI fonts**~~ — done. All px-valued Theme fields scale.
-2. ~~**Native file picker**~~ — done. `tinyfiledialogs` synchronous
-   `open_file_dialog` / `save_file_dialog_with_filter` in
-   `erigui-app/src/main.rs`.
-3. **ScrollBar drag** (~30 min): MouseButton+Move+Release routing in
-   `list_view.rs`. Test: simulate drag, verify scroll_offset moved.
+1. ~~**HiDPI fonts**~~ — done.
+2. ~~**Native file picker**~~ — done.
+3. ~~**ScrollBar drag**~~ — done. Press-on-thumb, drag, release; 5
+   tests including clamp + no-overflow no-op + track-but-not-thumb.
 4. **TabControl focus + kbd** (~30 min): same pattern as Slider.
 5. **Tooltip auto-show/hide** (~30 min): timer-based hover detection.
 6. **Untested widget smoke** (~3 hours): 21 widgets × ~10 min each.
 7. **Accordion kbd** (~30 min): if there's time.
 
-Total remaining: ~4-5 hours of CPU work.
+Total remaining: ~4 hours of CPU work.
 
 ## Quick reference
 

@@ -850,6 +850,19 @@ fn file_dialog_with_filters_empty_does_not_panic() {
 }
 
 #[test]
+fn file_dialog_navigate_with_empty_filters_does_not_panic() {
+    // Regression for an index-out-of-bounds panic in refresh_file_list:
+    // `self.filters[self.selected_filter]` panicked when filters was
+    // empty (selected_filter still defaulted to 0). Construction +
+    // with_initial_path triggers refresh_file_list against /tmp, which
+    // typically contains regular files, so the indexing path is hit.
+    let fd = FileDialog::new(test_id(), FileDialogMode::Open)
+        .with_filters(Vec::new())
+        .with_initial_path(temp_dir());
+    assert!(fd.is_enabled());
+}
+
+#[test]
 fn file_dialog_layout_sets_bounds() {
     let theme = default_theme();
     let mut fd =

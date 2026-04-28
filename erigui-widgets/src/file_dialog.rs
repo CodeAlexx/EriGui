@@ -244,11 +244,14 @@ impl FileDialog {
 
                         let is_dir = path.is_dir();
 
-                        // Apply filter to files
+                        // Apply filter to files. Guard against an empty
+                        // filter list (e.g. from with_filters(Vec::new()))
+                        // so that the index access cannot panic.
                         if !is_dir && self.mode != FileDialogMode::SelectFolder {
-                            let filter = &self.filters[self.selected_filter];
-                            if !filter.matches(&path) {
-                                continue;
+                            if let Some(filter) = self.filters.get(self.selected_filter) {
+                                if !filter.matches(&path) {
+                                    continue;
+                                }
                             }
                         }
 

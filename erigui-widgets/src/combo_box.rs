@@ -6,7 +6,7 @@ use std::any::Any;
 
 /// Callback fired when the combo box selection changes.
 /// Arguments: new selected index (if any), new selected text (if any).
-type SelectionChangedCallback = Box<dyn Fn(Option<usize>, Option<&str>)>;
+type SelectionChangedCallback = Box<dyn FnMut(Option<usize>, Option<&str>)>;
 
 pub struct ComboBox {
     state: WidgetState,
@@ -52,7 +52,7 @@ impl ComboBox {
 
     pub fn with_on_selection_changed<F>(mut self, handler: F) -> Self
     where
-        F: Fn(Option<usize>, Option<&str>) + 'static,
+        F: FnMut(Option<usize>, Option<&str>) + 'static,
     {
         self.on_selection_changed = Some(Box::new(handler));
         self
@@ -75,8 +75,15 @@ impl ComboBox {
     pub fn set_selected(&mut self, index: Option<usize>) {
         if index.is_none_or(|i| i < self.items.len()) {
             self.selected_index = index;
-            if let Some(handler) = &self.on_selection_changed {
-                handler(self.selected_index, self.selected_text());
+            // Resolve the text into a borrow that doesn't overlap the
+            // mutable borrow of `on_selection_changed`. The text comes
+            // from `self.items[..]` which the handler can't reach.
+            let text: Option<&str> = self
+                .selected_index
+                .and_then(|i| self.items.get(i).map(|s| s.as_str()));
+            let selected_index = self.selected_index;
+            if let Some(handler) = &mut self.on_selection_changed {
+                handler(selected_index, text);
             }
         }
     }

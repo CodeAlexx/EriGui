@@ -20,7 +20,7 @@ pub struct Slider {
     is_hovering: bool,
     thumb_size: i32,
     track_thickness: i32,
-    on_value_changed: Option<Box<dyn Fn(f32)>>,
+    on_value_changed: Option<Box<dyn FnMut(f32)>>,
 }
 
 impl Slider {
@@ -46,7 +46,7 @@ impl Slider {
 
     pub fn with_on_value_changed<F>(mut self, handler: F) -> Self
     where
-        F: Fn(f32) + 'static,
+        F: FnMut(f32) + 'static,
     {
         self.on_value_changed = Some(Box::new(handler));
         self
@@ -60,7 +60,7 @@ impl Slider {
         let new_value = value.clamp(self.min_value, self.max_value);
         if (new_value - self.current_value).abs() > f32::EPSILON {
             self.current_value = new_value;
-            if let Some(handler) = &self.on_value_changed {
+            if let Some(handler) = &mut self.on_value_changed {
                 handler(self.current_value);
             }
         }

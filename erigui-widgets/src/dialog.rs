@@ -38,7 +38,7 @@ pub struct Dialog {
     title_height: i32,
     button_height: i32,
     button_width: i32,
-    on_button_clicked: Option<Box<dyn Fn(DialogButton)>>,
+    on_button_clicked: Option<Box<dyn FnMut(DialogButton)>>,
 }
 
 impl Dialog {
@@ -92,7 +92,7 @@ impl Dialog {
 
     pub fn with_on_button_clicked<F>(mut self, handler: F) -> Self
     where
-        F: Fn(DialogButton) + 'static,
+        F: FnMut(DialogButton) + 'static,
     {
         self.on_button_clicked = Some(Box::new(handler));
         self
@@ -349,10 +349,13 @@ impl Widget for Dialog {
                         // Check button clicks
                         for i in 0..self.buttons.len() {
                             if self.get_button_rect(i).contains(mouse_event.position) {
-                                let (button, _) = &self.buttons[i];
-                                self.result = Some(*button);
-                                if let Some(handler) = &self.on_button_clicked {
-                                    handler(*button);
+                                // Copy the DialogButton out so the
+                                // immutable borrow of `self.buttons` ends
+                                // before we mutably borrow the callback.
+                                let button = self.buttons[i].0;
+                                self.result = Some(button);
+                                if let Some(handler) = &mut self.on_button_clicked {
+                                    handler(button);
                                 }
                                 self.close();
                                 return EventResult::Consumed;

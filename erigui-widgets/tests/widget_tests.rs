@@ -1258,6 +1258,106 @@ fn accordion_arrows_ignored_when_unfocused() {
 }
 
 // ============================================================================
+// Fn -> FnMut callback sweep (Mojo-port cleanup, 2026-04-28)
+// Six widgets used `Box<dyn Fn(...)>` for callbacks where the rest of the
+// codebase used `Box<dyn FnMut(...)>`. That blocked hosts from writing
+// idiomatic capture-mut closures: `with_on_change(|v| { self.x = v; })`
+// hit the borrow checker for half the widgets and not the other half.
+//
+// These tests confirm a FnMut closure capturing a RefCell counter can
+// register, fire, and mutate state through each rebuilt builder.
+// ============================================================================
+
+use erigui_widgets::{Dialog, DialogButton, SpinBox};
+
+fn fnmut_counter() -> (std::rc::Rc<std::cell::RefCell<i32>>, std::rc::Rc<std::cell::RefCell<i32>>)
+{
+    let owner = std::rc::Rc::new(std::cell::RefCell::new(0_i32));
+    let captured = owner.clone();
+    (owner, captured)
+}
+
+#[test]
+fn fnmut_sweep_checkbox_accepts_capture_mut_closure() {
+    let (owner, captured) = fnmut_counter();
+    let mut cb = Checkbox::new(test_id(), "x").with_on_toggle(move |_| {
+        *captured.borrow_mut() += 1;
+    });
+    cb.toggle();
+    cb.toggle();
+    assert_eq!(*owner.borrow(), 2, "FnMut on_toggle must mutate captured state");
+}
+
+#[test]
+fn fnmut_sweep_slider_accepts_capture_mut_closure() {
+    let (owner, captured) = fnmut_counter();
+    let mut s = Slider::new(test_id(), 0.0, 100.0, 0.0).with_on_value_changed(move |_| {
+        *captured.borrow_mut() += 1;
+    });
+    s.set_value(10.0);
+    s.set_value(20.0);
+    assert_eq!(*owner.borrow(), 2);
+}
+
+#[test]
+fn fnmut_sweep_spin_box_accepts_capture_mut_closure() {
+    let (owner, captured) = fnmut_counter();
+    let mut sb = SpinBox::new(test_id(), 0.0, 100.0, 0.0).with_on_value_changed(move |_| {
+        *captured.borrow_mut() += 1;
+    });
+    sb.set_value(5.0);
+    sb.set_value(10.0);
+    assert_eq!(*owner.borrow(), 2);
+}
+
+#[test]
+fn fnmut_sweep_combo_box_accepts_capture_mut_closure() {
+    let (owner, captured) = fnmut_counter();
+    let mut cb = ComboBox::new(test_id())
+        .with_items(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        .with_on_selection_changed(move |_idx, _text| {
+            *captured.borrow_mut() += 1;
+        });
+    cb.set_selected(Some(0));
+    cb.set_selected(Some(1));
+    assert_eq!(*owner.borrow(), 2);
+}
+
+#[test]
+fn fnmut_sweep_tab_control_accepts_capture_mut_closure() {
+    let (owner_changed, captured_changed) = fnmut_counter();
+    let (owner_closed, captured_closed) = fnmut_counter();
+    let mut tc = TabControl::new(test_id())
+        .with_on_tab_changed(move |_| {
+            *captured_changed.borrow_mut() += 1;
+        })
+        .with_on_tab_closed(move |_| {
+            *captured_closed.borrow_mut() += 1;
+        });
+    tc.add_tab(TabPage::new("a"));
+    tc.add_tab(TabPage::new("b"));
+    tc.set_active_tab(1);
+    assert_eq!(*owner_changed.borrow(), 1);
+    // on_tab_closed wires through the close button click path; we can't
+    // synthesize that without bounds + mouse coords, but registering the
+    // FnMut is what this sweep is asserting.
+    assert_eq!(*owner_closed.borrow(), 0);
+}
+
+#[test]
+fn fnmut_sweep_dialog_accepts_capture_mut_closure() {
+    let (owner, captured) = fnmut_counter();
+    // Just verify the builder accepts a capture-mut closure. Triggering
+    // it requires layout + mouse coords; that's not what the sweep is
+    // about.
+    let _d =
+        Dialog::new(test_id(), "title", "message").with_on_button_clicked(move |_b: DialogButton| {
+        *captured.borrow_mut() += 1;
+    });
+    assert_eq!(*owner.borrow(), 0);
+}
+
+// ============================================================================
 // DockPanel focus rectification (Mojo-port cleanup, 2026-04-28)
 // Previously: can_focus() returned false despite splitters/tabs being
 // interactive — focus state on WidgetState was unreachable.

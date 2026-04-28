@@ -18,7 +18,7 @@ pub struct SpinBox {
     pressed_button: Option<SpinButton>,
     button_repeat_start: Option<Instant>,
     last_repeat: Option<Instant>,
-    on_value_changed: Option<Box<dyn Fn(f32)>>,
+    on_value_changed: Option<Box<dyn FnMut(f32)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,7 +61,7 @@ impl SpinBox {
 
     pub fn with_on_value_changed<F>(mut self, handler: F) -> Self
     where
-        F: Fn(f32) + 'static,
+        F: FnMut(f32) + 'static,
     {
         self.on_value_changed = Some(Box::new(handler));
         self
@@ -76,7 +76,7 @@ impl SpinBox {
         if (new_value - self.current_value).abs() > f32::EPSILON {
             self.current_value = new_value;
             self.update_text_from_value();
-            if let Some(handler) = &self.on_value_changed {
+            if let Some(handler) = &mut self.on_value_changed {
                 handler(self.current_value);
             }
         }

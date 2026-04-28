@@ -54,8 +54,8 @@ pub struct TabControl {
     tab_height: i32,
     min_tab_width: i32,
     max_tab_width: i32,
-    on_tab_changed: Option<Box<dyn Fn(usize)>>,
-    on_tab_closed: Option<Box<dyn Fn(usize)>>,
+    on_tab_changed: Option<Box<dyn FnMut(usize)>>,
+    on_tab_closed: Option<Box<dyn FnMut(usize)>>,
 }
 
 impl TabControl {
@@ -76,7 +76,7 @@ impl TabControl {
 
     pub fn with_on_tab_changed<F>(mut self, handler: F) -> Self
     where
-        F: Fn(usize) + 'static,
+        F: FnMut(usize) + 'static,
     {
         self.on_tab_changed = Some(Box::new(handler));
         self
@@ -84,7 +84,7 @@ impl TabControl {
 
     pub fn with_on_tab_closed<F>(mut self, handler: F) -> Self
     where
-        F: Fn(usize) + 'static,
+        F: FnMut(usize) + 'static,
     {
         self.on_tab_closed = Some(Box::new(handler));
         self
@@ -113,7 +113,7 @@ impl TabControl {
     pub fn set_active_tab(&mut self, index: usize) {
         if index < self.tabs.len() && self.tabs[index].enabled {
             self.active_tab = index;
-            if let Some(handler) = &self.on_tab_changed {
+            if let Some(handler) = &mut self.on_tab_changed {
                 handler(index);
             }
         }
@@ -382,7 +382,7 @@ impl Widget for TabControl {
                 if mouse_event.button == MouseButton::Left && mouse_event.pressed {
                     // Check close button click
                     if let Some(close_index) = self.hover_close {
-                        if let Some(handler) = &self.on_tab_closed {
+                        if let Some(handler) = &mut self.on_tab_closed {
                             handler(close_index);
                         }
                         self.remove_tab(close_index);

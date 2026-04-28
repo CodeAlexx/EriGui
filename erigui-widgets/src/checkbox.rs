@@ -10,7 +10,7 @@ pub struct Checkbox {
     checked: bool,
     is_hovering: bool,
     box_size: i32,
-    on_toggle: Option<Box<dyn Fn(bool)>>,
+    on_toggle: Option<Box<dyn FnMut(bool)>>,
 }
 
 impl Checkbox {
@@ -32,7 +32,7 @@ impl Checkbox {
 
     pub fn with_on_toggle<F>(mut self, handler: F) -> Self
     where
-        F: Fn(bool) + 'static,
+        F: FnMut(bool) + 'static,
     {
         self.on_toggle = Some(Box::new(handler));
         self
@@ -45,7 +45,7 @@ impl Checkbox {
     pub fn set_checked(&mut self, checked: bool) {
         if self.checked != checked {
             self.checked = checked;
-            if let Some(handler) = &self.on_toggle {
+            if let Some(handler) = &mut self.on_toggle {
                 handler(self.checked);
             }
         }

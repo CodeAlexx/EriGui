@@ -882,8 +882,13 @@ impl Widget for DateTimePicker {
             // separately from KeyPress for typed characters. Without this,
             // typing digits into hour/minute fields does nothing on real
             // GUIs.
+            //
+            // Gated on `self.state.focused` first: with editing_hour /
+            // editing_minute lingering true after a click, an unfocused
+            // picker would otherwise steal text input from sibling widgets
+            // anywhere in the app.
             Event::TextInput(te) => {
-                if self.editing_hour || self.editing_minute {
+                if self.state.focused && (self.editing_hour || self.editing_minute) {
                     let mut changed = false;
                     for ch in te.text.chars() {
                         if ch.is_numeric() {
@@ -903,7 +908,10 @@ impl Widget for DateTimePicker {
                 }
             }
             Event::KeyPress(KeyPressEvent { key, .. }) => {
-                if self.editing_hour || self.editing_minute {
+                // Same focus gate as Event::TextInput above: don't steal key
+                // events app-wide just because the user once clicked into the
+                // hour/minute field.
+                if self.state.focused && (self.editing_hour || self.editing_minute) {
                     match key {
                         // Legacy headless path; production uses TextInput.
                         Key::Character(ch) if ch.is_numeric() => {

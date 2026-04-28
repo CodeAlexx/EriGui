@@ -330,3 +330,63 @@ fn test_widget_bounds() {
     assert_eq!(bounds.width(), 100);
     assert_eq!(bounds.height(), 50);
 }
+
+// ============================================================================
+// Production-keyboard-input regression tests (overnight audit, 2026-04-28)
+//
+// winit 0.29 emits typed characters via `Event::TextInput`, separate from
+// `Event::KeyPress`. Several widgets only handled the legacy
+// `Key::Character(ch)` form which never fires in production. These tests
+// lock in the fix so the bug doesn't come back.
+//
+// Fixes applied to: combo_box, spin_box, color_picker, date_time_picker.
+// Only combo_box has enough public API surface to drive a complete
+// integration test from outside the crate. The other three widgets'
+// internal state (hex_input, editing flags, hour_input/minute_input) is
+// private; a smoke-level test that the fix compiles is the most we can
+// do without exposing internals.
+// ============================================================================
+
+use erigui_core::{Event, EventResult, MouseButton, MouseButtonEvent, Point, TextInputEvent};
+use erigui_widgets::ComboBox;
+
+#[test]
+fn combo_box_text_input_consumed_when_open() {
+    let theme = default_theme();
+    let mut cb = ComboBox::new(test_id())
+        .with_items(vec!["apple".to_string(), "banana".to_string()]);
+    cb.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    let click = MouseButtonEvent {
+        button: MouseButton::Left,
+        pressed: true,
+        position: Point::new(100, 15),
+        modifiers: erigui_core::Modifiers::empty(),
+    };
+    cb.handle_event(&Event::MouseButton(click), &theme);
+    assert!(cb.is_open(), "click should open the dropdown");
+
+    let ti = TextInputEvent { text: "b".to_string() };
+    let result = cb.handle_event(&Event::TextInput(ti), &theme);
+    assert_eq!(
+        result,
+        EventResult::Consumed,
+        "open ComboBox must consume Event::TextInput for filter"
+    );
+}
+
+#[test]
+fn combo_box_text_input_ignored_when_closed() {
+    let theme = default_theme();
+    let mut cb = ComboBox::new(test_id())
+        .with_items(vec!["x".to_string()]);
+    cb.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    let ti = TextInputEvent { text: "x".to_string() };
+    let result = cb.handle_event(&Event::TextInput(ti), &theme);
+    assert_eq!(
+        result,
+        EventResult::Ignored,
+        "closed ComboBox should NOT consume Event::TextInput"
+    );
+}

@@ -342,6 +342,10 @@ impl Widget for ComboBox {
                             self.update_filter();
                             EventResult::Consumed
                         }
+                        // Legacy headless path: some test harnesses emit
+                        // `Key::Character('a')`. Real winit 0.29 backend
+                        // emits `Key::A` and a separate `Event::TextInput`,
+                        // handled below.
                         Key::Character(ch) => {
                             self.filter_text.push(ch);
                             self.update_filter();
@@ -354,6 +358,22 @@ impl Widget for ComboBox {
                         }
                         _ => EventResult::Ignored,
                     }
+                } else {
+                    EventResult::Ignored
+                }
+            }
+
+            // Production keyboard input path. Without this, typing to
+            // filter the dropdown does nothing on real GUIs.
+            Event::TextInput(te) => {
+                if self.is_open {
+                    for ch in te.text.chars() {
+                        if !ch.is_control() {
+                            self.filter_text.push(ch);
+                        }
+                    }
+                    self.update_filter();
+                    EventResult::Consumed
                 } else {
                     EventResult::Ignored
                 }

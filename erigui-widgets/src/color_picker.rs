@@ -655,6 +655,8 @@ impl Widget for ColorPicker {
                             }
                             return EventResult::Consumed;
                         }
+                        // Legacy headless path. Production winit emits
+                        // separate Event::TextInput; handled below.
                         Key::Character(ch) => {
                             if self.hex_input.len() < 6 && ch.is_ascii_hexdigit() {
                                 self.hex_input
@@ -666,6 +668,25 @@ impl Widget for ColorPicker {
                         }
                         _ => {}
                     }
+                }
+            }
+            // Production text input — without this, typing hex digits
+            // does nothing on real GUIs.
+            Event::TextInput(te) => {
+                if self.hex_focused {
+                    let mut changed = false;
+                    for ch in te.text.chars() {
+                        if self.hex_input.len() < 6 && ch.is_ascii_hexdigit() {
+                            self.hex_input
+                                .insert(self.hex_cursor, ch.to_ascii_uppercase());
+                            self.hex_cursor += 1;
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        self.update_color_from_hex();
+                    }
+                    return EventResult::Consumed;
                 }
             }
             _ => {}

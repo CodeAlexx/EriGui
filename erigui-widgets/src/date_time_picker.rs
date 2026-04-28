@@ -878,9 +878,34 @@ impl Widget for DateTimePicker {
                     return EventResult::Consumed;
                 }
             }
+            // Production text input — winit emits Event::TextInput
+            // separately from KeyPress for typed characters. Without this,
+            // typing digits into hour/minute fields does nothing on real
+            // GUIs.
+            Event::TextInput(te) => {
+                if self.editing_hour || self.editing_minute {
+                    let mut changed = false;
+                    for ch in te.text.chars() {
+                        if ch.is_numeric() {
+                            if self.editing_hour && self.hour_input.len() < 2 {
+                                self.hour_input.push(ch);
+                                changed = true;
+                            } else if self.editing_minute && self.minute_input.len() < 2 {
+                                self.minute_input.push(ch);
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        self.update_time_from_inputs();
+                    }
+                    return EventResult::Consumed;
+                }
+            }
             Event::KeyPress(KeyPressEvent { key, .. }) => {
                 if self.editing_hour || self.editing_minute {
                     match key {
+                        // Legacy headless path; production uses TextInput.
                         Key::Character(ch) if ch.is_numeric() => {
                             if self.editing_hour {
                                 if self.hour_input.len() < 2 {

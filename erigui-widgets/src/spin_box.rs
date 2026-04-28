@@ -352,9 +352,35 @@ impl Widget for SpinBox {
                 }
             }
 
+            // Production keyboard input — winit 0.29 emits Key::Digit0..9
+            // separately from text. Without this branch, typing into a
+            // spin box does nothing on real GUIs.
+            Event::TextInput(te) => {
+                if self.is_editing {
+                    let mut changed = false;
+                    for ch in te.text.chars() {
+                        if ch.is_numeric()
+                            || ch == '.'
+                            || (ch == '-' && self.text_value.is_empty())
+                        {
+                            self.text_value.push(ch);
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        EventResult::Consumed
+                    } else {
+                        EventResult::Ignored
+                    }
+                } else {
+                    EventResult::Ignored
+                }
+            }
+
             Event::KeyPress(key_event) => {
                 if self.is_editing {
                     match key_event.key {
+                        // Legacy headless path; production uses TextInput above.
                         Key::Character(ch) => {
                             if ch.is_numeric()
                                 || ch == '.'

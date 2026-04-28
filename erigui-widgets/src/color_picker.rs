@@ -170,6 +170,15 @@ impl ColorPicker {
     }
 
     fn update_color_from_hex(&mut self) {
+        // Only commit the color when a full 6-digit hex is present.
+        // Without this, typing "F", "FF", "FF0", ... briefly sets the
+        // color to rgb(0,0,15), rgb(0,0,255), rgb(0,15,240), etc.,
+        // which is visible as flicker. The hex_input string still
+        // updates char-by-char (so the user sees their typing); only
+        // the color commit is delayed until input is complete.
+        if self.hex_input.len() != 6 {
+            return;
+        }
         if let Ok(value) = u32::from_str_radix(&self.hex_input, 16) {
             self.color = Color::from_hex(value);
             self.hsv = Self::rgb_to_hsv(

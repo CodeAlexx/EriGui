@@ -588,10 +588,10 @@ fn color_picker_hex_input_keypress_path() {
     );
     assert_eq!(res, EventResult::Consumed, "hex-rect click is consumed");
 
-    // The default hex_input is "FF0000" with cursor at 6 (end), and
-    // the input is full (len == 6). Sending more characters should
-    // be no-ops because the impl gates on `hex_input.len() < 6`.
-    // Backspace removes the last char and re-parses.
+    // The default hex_input is "FF0000" (len == 6, full). Backspace
+    // shrinks it to "FF000" (len == 5). Per the no-flicker contract,
+    // a partial hex must NOT commit a new color -- color stays at
+    // 0xFF0000 until a full 6-digit hex is present again.
     let bs = Event::KeyPress(KeyPressEvent {
         key: Key::Backspace,
         modifiers: Modifiers::empty(),
@@ -599,13 +599,94 @@ fn color_picker_hex_input_keypress_path() {
     });
     let res = cp.handle_event(&bs, &theme);
     assert_eq!(res, EventResult::Consumed);
-    // After removing one digit, "FF000" parses as 0x00FF000, which
-    // Color::from_hex interprets as r=0x0F, g=0xF0, b=0x00. Verify
-    // that the color did update via the hex re-parse path.
     let after_bs = cp.get_color();
-    assert!(
-        after_bs.r != 0xFF || after_bs.g != 0x00 || after_bs.b != 0x00,
-        "Backspace inside hex input should change the parsed color"
+    assert_eq!(
+        (after_bs.r, after_bs.g, after_bs.b),
+        (0xFF, 0x00, 0x00),
+        "color must NOT change while hex_input is partial (len < 6)"
+    );
+}
+
+#[test]
+fn color_picker_hex_input_does_not_flicker_on_partial() {
+    // No-flicker contract: typing a partial hex string ("F", "FF",
+    // ..., "FFFFF") must NOT commit the parsed color. The hex_input
+    // string still updates per keystroke (so the user sees their
+    // typing), but the underlying color only changes when the input
+    // reaches a full 6 chars.
+    let theme = default_theme();
+    let mut cp = ColorPicker::new(test_id())
+        .with_style(ColorPickerStyle::Compact)
+        .with_alpha(true);
+    cp.layout(Rect::new(0, 0, 44, 32), &theme);
+
+    // Open popup, focus hex (clears hex_input to empty after backspaces).
+    let _ = cp.handle_event(
+        &Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(10, 10),
+            pressed: true,
+            modifiers: Modifiers::empty(),
+        }),
+        &theme,
+    );
+    let _ = cp.handle_event(
+        &Event::MouseButton(MouseButtonEvent {
+            button: MouseButton::Left,
+            position: Point::new(50, 320),
+            pressed: true,
+            modifiers: Modifiers::empty(),
+        }),
+        &theme,
+    );
+
+    // Wipe the default "FF0000" via Backspace ×6 so we start with an
+    // empty hex_input. The color stays at 0xFF0000 throughout because
+    // every intermediate state is len < 6.
+    let bs = Event::KeyPress(KeyPressEvent {
+        key: Key::Backspace,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    for _ in 0..6 {
+        let _ = cp.handle_event(&bs, &theme);
+    }
+    let baseline = cp.get_color();
+    assert_eq!(
+        (baseline.r, baseline.g, baseline.b),
+        (0xFF, 0x00, 0x00),
+        "color must stay at 0xFF0000 while hex shrinks below 6 chars"
+    );
+
+    // Type 5 chars one at a time. After each, the color must STILL be
+    // 0xFF0000 -- the input is partial.
+    for ch in ["A", "A", "B", "B", "C"].iter() {
+        let _ = cp.handle_event(
+            &Event::TextInput(TextInputEvent {
+                text: ch.to_string(),
+            }),
+            &theme,
+        );
+        let mid = cp.get_color();
+        assert_eq!(
+            (mid.r, mid.g, mid.b),
+            (0xFF, 0x00, 0x00),
+            "color must not flicker through partial hex (len < 6)"
+        );
+    }
+
+    // Type the 6th char. NOW the color must commit to 0xAABBCC.
+    let _ = cp.handle_event(
+        &Event::TextInput(TextInputEvent {
+            text: "C".to_string(),
+        }),
+        &theme,
+    );
+    let final_c = cp.get_color();
+    assert_eq!(
+        (final_c.r, final_c.g, final_c.b),
+        (0xAA, 0xBB, 0xCC),
+        "color commits when hex reaches 6 chars"
     );
 }
 

@@ -137,6 +137,7 @@ fn make_node(id: usize, type_id: &str, inputs: &[&str], outputs: &[&str]) -> Nod
 fn add_field(node: &mut Node, name: &str, value: FieldValue) {
     node.fields.push(Field {
         id: node.fields.len(),
+        name: name.to_string(),
         label: name.to_string(),
         kind: WidgetFieldKind::Number {
             min: 0.0,

@@ -1634,6 +1634,7 @@ fn make_node_with_fields(fields: Vec<Field>) -> Node {
 fn field_text(value: &str) -> Field {
     Field {
         id: 1,
+        name: "name".into(),
         label: "name".into(),
         kind: FieldKind::Text,
         value: FieldValue::Text(value.into()),
@@ -1643,6 +1644,7 @@ fn field_text(value: &str) -> Field {
 fn field_number() -> Field {
     Field {
         id: 1,
+        name: "n".into(),
         label: "n".into(),
         kind: FieldKind::Number {
             min: 0.0,
@@ -1656,6 +1658,7 @@ fn field_number() -> Field {
 fn field_select() -> Field {
     Field {
         id: 1,
+        name: "mode".into(),
         label: "mode".into(),
         kind: FieldKind::Select {
             options: vec!["a".into(), "b".into(), "c".into()],
@@ -1667,6 +1670,7 @@ fn field_select() -> Field {
 fn field_bool() -> Field {
     Field {
         id: 1,
+        name: "neg".into(),
         label: "neg".into(),
         kind: FieldKind::Bool,
         value: FieldValue::Bool(false),
@@ -1676,6 +1680,7 @@ fn field_bool() -> Field {
 fn field_path() -> Field {
     Field {
         id: 1,
+        name: "ckpt".into(),
         label: "ckpt".into(),
         kind: FieldKind::FilePath {
             extensions: vec!["safetensors".into()],
@@ -1813,6 +1818,7 @@ fn bug_ng_node_resizes_to_fit_fields() {
         fields: (0..5)
             .map(|i| Field {
                 id: i,
+                name: format!("f{}", i),
                 label: format!("f{}", i),
                 kind: FieldKind::Text,
                 value: FieldValue::Text(String::new()),

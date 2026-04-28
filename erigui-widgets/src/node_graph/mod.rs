@@ -183,6 +183,355 @@ enum Interaction {
     },
 }
 
+/// Process-wide monotonic origin used to derive the caret blink phase.
+/// Cheap to compute once via `LazyLock`; `Instant::elapsed` is a single
+/// syscall on Linux. Renderer reads `BLINK_EPOCH.elapsed()` per frame —
+/// no allocation, no global mutex.
+static BLINK_EPOCH: std::sync::LazyLock<std::time::Instant> =
+    std::sync::LazyLock::new(std::time::Instant::now);
+
+/// Direction for cursor movement in [`FieldEditState`]. Modeled on egui's
+/// `CursorRange`/`Galley` movement primitives, simplified to single-line text:
+/// no Up/Down rows, no PageUp/PageDown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorMove {
+    /// One char left.
+    Left,
+    /// One char right.
+    Right,
+    /// Start of text (always 0).
+    Home,
+    /// End of text (always `text.len()`).
+    End,
+    /// Previous word boundary.
+    WordLeft,
+    /// Next word boundary.
+    WordRight,
+}
+
+/// Per-field editor state for the inline Text/FilePath/Number cells inside a
+/// node. Replaces the old flat `String` "type appends, click commits" model
+/// with a real cursor + selection + undo/redo stack. Single-line only —
+/// node fields are not multi-line, so we do not track rows or wrap.
+///
+/// Cursor is a **byte** offset into `text`, but movement steps over **chars**
+/// (UTF-8 safe via `text.char_indices()`). Selection is whatever lies between
+/// `selection_anchor` (if `Some`) and `cursor`, in either order.
+///
+/// Ported (lightly) from `egui-0.29.1`'s `TextEditState` + the `events()`
+/// dispatch in `widgets/text_edit/builder.rs`. Egui's full state machine
+/// (galley-aware cursor, IME, multi-row navigation, paragraph deletes) is
+/// intentionally **not** copied — see the bottom of this file's
+/// `field_edit_basic` test for the contract we do honor.
+#[derive(Clone, Debug)]
+pub struct FieldEditState {
+    pub text: String,
+    /// Byte offset in `text` where the cursor sits. Always on a char
+    /// boundary; methods that move it use `char_indices()`.
+    pub cursor: usize,
+    /// If `Some`, selection runs between `selection_anchor` and `cursor`
+    /// (either order is valid; helpers normalize).
+    pub selection_anchor: Option<usize>,
+    /// Undo stack: snapshots of `(text, cursor)` taken before each
+    /// text-changing event. `redo` is the inverse stack, populated when
+    /// `undo()` succeeds.
+    pub undo: Vec<(String, usize)>,
+    pub redo: Vec<(String, usize)>,
+    /// Last edit/cursor-move time, in seconds since process start. Used to
+    /// pause cursor blink while the user is actively editing (egui does the
+    /// same in `TextEditState::last_edit_time`).
+    pub last_edit: std::time::Instant,
+}
+
+impl FieldEditState {
+    /// New state with the cursor placed at the **end** of `text` and no
+    /// selection. Matches the typical click-into-edit behavior for a
+    /// previously-committed value.
+    pub fn new(text: String) -> Self {
+        let cursor = text.len();
+        Self {
+            text,
+            cursor,
+            selection_anchor: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            last_edit: std::time::Instant::now(),
+        }
+    }
+
+    /// Push the current `(text, cursor)` onto the undo stack and clear
+    /// redo. Called before any mutation that should be reversible.
+    pub fn push_undo(&mut self) {
+        self.undo.push((self.text.clone(), self.cursor));
+        self.redo.clear();
+        // Cap stack growth — single-line fields rarely accumulate huge
+        // histories, but a runaway loop shouldn't OOM.
+        if self.undo.len() > 256 {
+            self.undo.remove(0);
+        }
+    }
+
+    pub fn undo(&mut self) {
+        if let Some((prev_text, prev_cursor)) = self.undo.pop() {
+            self.redo.push((self.text.clone(), self.cursor));
+            self.text = prev_text;
+            self.cursor = prev_cursor;
+            self.selection_anchor = None;
+            self.last_edit = std::time::Instant::now();
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some((next_text, next_cursor)) = self.redo.pop() {
+            self.undo.push((self.text.clone(), self.cursor));
+            self.text = next_text;
+            self.cursor = next_cursor;
+            self.selection_anchor = None;
+            self.last_edit = std::time::Instant::now();
+        }
+    }
+
+    /// Normalized selection range (start <= end) if any.
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        let anchor = self.selection_anchor?;
+        if anchor == self.cursor {
+            None
+        } else {
+            Some((anchor.min(self.cursor), anchor.max(self.cursor)))
+        }
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection_range().is_some()
+    }
+
+    pub fn selected_text(&self) -> &str {
+        match self.selection_range() {
+            Some((a, b)) => &self.text[a..b],
+            None => "",
+        }
+    }
+
+    /// Replace the current selection (or insert at cursor if no selection)
+    /// with `s`. Snapshots undo first.
+    pub fn replace_selection(&mut self, s: &str) {
+        self.push_undo();
+        if let Some((a, b)) = self.selection_range() {
+            self.text.replace_range(a..b, s);
+            self.cursor = a + s.len();
+        } else {
+            self.text.insert_str(self.cursor, s);
+            self.cursor += s.len();
+        }
+        self.selection_anchor = None;
+        self.last_edit = std::time::Instant::now();
+    }
+
+    /// Identical to `replace_selection` but named per the task spec.
+    pub fn insert_text(&mut self, s: &str) {
+        self.replace_selection(s);
+    }
+
+    /// Expand selection to the word containing `byte_pos`. For
+    /// double-click word-select. Different from Ctrl+arrow word-jump:
+    /// this selects ONLY the word (no trailing whitespace/punctuation).
+    /// No-op when the click lands on whitespace or non-word chars.
+    pub fn select_word_at(&mut self, byte_pos: usize) {
+        if self.text.is_empty() {
+            return;
+        }
+        let pos = byte_pos.min(self.text.len());
+
+        // Determine if pos lands inside a word. If pos == text.len(),
+        // peek at the previous char so a click past the end of a word
+        // still selects that word.
+        let char_at = self.text[pos..]
+            .chars()
+            .next()
+            .or_else(|| self.text[..pos].chars().next_back());
+        let in_word = char_at.map(is_word_char).unwrap_or(false);
+        if !in_word {
+            return;
+        }
+
+        // Walk left from pos while previous char is a word char.
+        let mut start = pos;
+        for (i, c) in self.text[..pos].char_indices().rev() {
+            if is_word_char(c) {
+                start = i;
+            } else {
+                break;
+            }
+        }
+
+        // Walk right from pos while current char is a word char.
+        let mut end = self.text.len();
+        for (i, c) in self.text[pos..].char_indices() {
+            if !is_word_char(c) {
+                end = pos + i;
+                break;
+            }
+        }
+
+        if start < end {
+            self.selection_anchor = Some(start);
+            self.cursor = end;
+        }
+    }
+
+    /// Select-all at the current cursor — same as Ctrl+A. Provided as a
+    /// distinct entry point for triple-click line-select (single-line so
+    /// "line" and "all" coincide).
+    pub fn select_line(&mut self) {
+        self.select_all();
+    }
+
+    pub fn select_all(&mut self) {
+        self.selection_anchor = Some(0);
+        self.cursor = self.text.len();
+    }
+
+    /// Backspace: delete selection if any, else delete one char before cursor.
+    pub fn delete_selection_or_one_back(&mut self) {
+        if self.has_selection() {
+            self.replace_selection("");
+            return;
+        }
+        if self.cursor == 0 {
+            return;
+        }
+        // Step back one char (UTF-8 safe).
+        let prev = self.text[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.push_undo();
+        self.text.replace_range(prev..self.cursor, "");
+        self.cursor = prev;
+        self.selection_anchor = None;
+        self.last_edit = std::time::Instant::now();
+    }
+
+    /// Delete: delete selection if any, else delete one char at/after cursor.
+    pub fn delete_selection_or_one_forward(&mut self) {
+        if self.has_selection() {
+            self.replace_selection("");
+            return;
+        }
+        if self.cursor >= self.text.len() {
+            return;
+        }
+        // Find the byte index just after the next char.
+        let next = self.text[self.cursor..]
+            .char_indices()
+            .nth(1)
+            .map(|(i, _)| self.cursor + i)
+            .unwrap_or(self.text.len());
+        self.push_undo();
+        self.text.replace_range(self.cursor..next, "");
+        self.selection_anchor = None;
+        self.last_edit = std::time::Instant::now();
+    }
+
+    /// Move the cursor. If `extend_selection`, the existing
+    /// `selection_anchor` is preserved (or set to the pre-move cursor
+    /// position); otherwise the selection is dropped.
+    pub fn move_cursor(&mut self, dir: CursorMove, extend_selection: bool) {
+        let pre = self.cursor;
+        let new = match dir {
+            CursorMove::Left => self.text[..self.cursor]
+                .char_indices()
+                .next_back()
+                .map(|(i, _)| i)
+                .unwrap_or(0),
+            CursorMove::Right => self.text[self.cursor..]
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| self.cursor + i)
+                .unwrap_or(self.text.len()),
+            CursorMove::Home => 0,
+            CursorMove::End => self.text.len(),
+            CursorMove::WordLeft => prev_word_boundary(&self.text, self.cursor),
+            CursorMove::WordRight => next_word_boundary(&self.text, self.cursor),
+        };
+        if extend_selection {
+            if self.selection_anchor.is_none() {
+                self.selection_anchor = Some(pre);
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+        self.cursor = new;
+        self.last_edit = std::time::Instant::now();
+    }
+
+    /// Best-effort cursor placement from a click x-offset relative to the
+    /// text origin. `measure` should return the rendered width in px of a
+    /// `&str`. This is `O(chars)` — fine for short single-line fields.
+    pub fn cursor_from_click(&mut self, click_x: i32, measure: &mut dyn FnMut(&str) -> i32) {
+        let mut best = 0usize;
+        let mut best_dx = i32::MAX;
+        for (idx, _ch) in self.text.char_indices().chain(std::iter::once((self.text.len(), '\0'))) {
+            let w = measure(&self.text[..idx]);
+            let dx = (w - click_x).abs();
+            if dx < best_dx {
+                best_dx = dx;
+                best = idx;
+            }
+        }
+        self.cursor = best;
+        self.selection_anchor = None;
+    }
+}
+
+/// Word-boundary helpers — match egui's "alphanumerics are word chars,
+/// everything else is a separator" heuristic, simplified.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn prev_word_boundary(text: &str, mut pos: usize) -> usize {
+    if pos == 0 {
+        return 0;
+    }
+    // Walk left across non-word chars first, then across one run of word chars.
+    let chars: Vec<(usize, char)> = text[..pos].char_indices().collect();
+    let mut i = chars.len();
+    // Skip non-word chars adjacent to the cursor.
+    while i > 0 && !is_word_char(chars[i - 1].1) {
+        i -= 1;
+        pos = chars[i].0;
+    }
+    // Skip the word run.
+    while i > 0 && is_word_char(chars[i - 1].1) {
+        i -= 1;
+        pos = chars[i].0;
+    }
+    pos
+}
+
+fn next_word_boundary(text: &str, pos: usize) -> usize {
+    if pos >= text.len() {
+        return text.len();
+    }
+    let chars: Vec<(usize, char)> = text[pos..].char_indices().collect();
+    let mut i = 0usize;
+    // Skip a word run.
+    while i < chars.len() && is_word_char(chars[i].1) {
+        i += 1;
+    }
+    // Skip following non-word chars.
+    while i < chars.len() && !is_word_char(chars[i].1) {
+        i += 1;
+    }
+    if i >= chars.len() {
+        text.len()
+    } else {
+        pos + chars[i].0
+    }
+}
+
 pub struct NodeGraph {
     state: WidgetState,
     pub graph: Graph,
@@ -196,7 +545,7 @@ pub struct NodeGraph {
     last_cursor_world: Point,
     field_rects: HashMap<FieldRef, Rect>,
     active_field: Option<FieldRef>,
-    field_edit: String,
+    field_edit: FieldEditState,
     groups: Vec<Group>,
     select_overlay: Option<SelectOverlay>,
     file_dialog: Option<FileDialog>,
@@ -252,7 +601,7 @@ impl NodeGraph {
             last_cursor_world: Point::ZERO,
             field_rects: HashMap::new(),
             active_field: None,
-            field_edit: String::new(),
+            field_edit: FieldEditState::new(String::new()),
             groups: Vec::new(),
             select_overlay: None,
             file_dialog: None,
@@ -901,7 +1250,7 @@ impl NodeGraph {
 
                 let label = &field.label;
                 let value_text = if active {
-                    self.field_edit.clone()
+                    self.field_edit.text.clone()
                 } else {
                     self.field_value_str(field)
                 };
@@ -946,18 +1295,74 @@ impl NodeGraph {
                     value_font,
                 );
                 if is_active {
-                    let text_width = ctx
-                        .measure_text(&display_value, value_font)
+                    // Use the real cursor byte-offset into `field_edit.text`
+                    // (not the on-screen ellipsized substring). Single-line
+                    // node fields don't ellipsize while editing — the
+                    // `display_value` above is the full edit buffer when
+                    // active — so this maps cleanly.
+                    let cursor_byte = self.field_edit.cursor.min(self.field_edit.text.len());
+                    let pre_cursor = &self.field_edit.text[..cursor_byte];
+                    let pre_w = ctx
+                        .measure_text(pre_cursor, value_font)
                         .width
                         .min(field_rect.width() - pad * 2);
-                    let caret_x = field_rect.x() + pad + text_width + 2;
-                    let caret_top = value_y - value_font + 2;
-                    let caret_bottom = value_y + 4;
-                    ctx.draw_line(
-                        Point::new(caret_x, caret_top),
-                        Point::new(caret_x, caret_bottom),
-                        1,
-                    );
+                    // Selection highlight (drawn under the text glyphs would
+                    // require z-order; we draw it before the caret bar and
+                    // accept it sitting on top — the alpha keeps text
+                    // legible).
+                    if let Some((a, b)) = self.field_edit.selection_range() {
+                        let a_clamped = a.min(self.field_edit.text.len());
+                        let b_clamped = b.min(self.field_edit.text.len());
+                        let sel_x_start = ctx
+                            .measure_text(
+                                &self.field_edit.text[..a_clamped],
+                                value_font,
+                            )
+                            .width;
+                        let sel_x_end = ctx
+                            .measure_text(
+                                &self.field_edit.text[..b_clamped],
+                                value_font,
+                            )
+                            .width;
+                        let sel_left = field_rect.x() + pad + sel_x_start;
+                        let sel_right = field_rect.x() + pad + sel_x_end;
+                        let sel_top = value_y - value_font + 2;
+                        let sel_bottom = value_y + 4;
+                        ctx.set_color(theme.colors.primary.with_alpha(80));
+                        ctx.fill_rect(Rect::new(
+                            sel_left,
+                            sel_top,
+                            (sel_right - sel_left).max(1),
+                            (sel_bottom - sel_top).max(1),
+                        ));
+                        ctx.set_color(theme.colors.text);
+                    }
+                    // Blink: on/off every 500ms. Pause-while-editing — if
+                    // the user just typed (last_edit < 500ms ago), force
+                    // the caret on so it doesn't visually disappear
+                    // mid-keystroke (egui does the same in
+                    // `TextEditState::last_edit_time`).
+                    let just_edited =
+                        self.field_edit.last_edit.elapsed().as_millis() < 500;
+                    let blink_phase =
+                        (BLINK_EPOCH.elapsed().as_millis() / 500) % 2 == 0;
+                    if just_edited || blink_phase {
+                        let caret_x = field_rect.x() + pad + pre_w;
+                        let caret_top = value_y - value_font + 2;
+                        let caret_bottom = value_y + 4;
+                        // 2px-wide bar via two adjacent vertical lines.
+                        ctx.draw_line(
+                            Point::new(caret_x, caret_top),
+                            Point::new(caret_x, caret_bottom),
+                            1,
+                        );
+                        ctx.draw_line(
+                            Point::new(caret_x + 1, caret_top),
+                            Point::new(caret_x + 1, caret_bottom),
+                            1,
+                        );
+                    }
                 }
             }
 
@@ -1846,7 +2251,7 @@ impl NodeGraph {
 
     fn commit_field_edit(&mut self) {
         if let Some(fref) = self.active_field {
-            let edit = self.field_edit.clone();
+            let edit = self.field_edit.text.clone();
             if let Some(field) = self.get_field_mut(fref) {
                 match &field.kind {
                     FieldKind::Text => field.value = FieldValue::Text(edit),
@@ -1942,8 +2347,8 @@ impl NodeGraph {
             if let Some(field_snapshot) = self.get_field(fref).cloned() {
                 match field_snapshot.kind {
                     FieldKind::Text => {
-                        self.field_edit.push_str(text);
-                        let new_val = self.field_edit.clone();
+                        self.field_edit.insert_text(text);
+                        let new_val = self.field_edit.text.clone();
                         if let Some(f) = self.get_field_mut(fref) {
                             f.value = FieldValue::Text(new_val);
                         }
@@ -1951,8 +2356,8 @@ impl NodeGraph {
                         return true;
                     }
                     FieldKind::FilePath { .. } => {
-                        self.field_edit.push_str(text);
-                        let new_val = self.field_edit.clone();
+                        self.field_edit.insert_text(text);
+                        let new_val = self.field_edit.text.clone();
                         if let Some(f) = self.get_field_mut(fref) {
                             f.value = FieldValue::FilePath(PathBuf::from(new_val));
                         }
@@ -1967,8 +2372,8 @@ impl NodeGraph {
                         if filtered.is_empty() {
                             return false;
                         }
-                        self.field_edit.push_str(&filtered);
-                        if let Ok(v) = self.field_edit.trim().parse::<f32>() {
+                        self.field_edit.insert_text(&filtered);
+                        if let Ok(v) = self.field_edit.text.trim().parse::<f32>() {
                             if let Some(f) = self.get_field_mut(fref) {
                                 f.value = FieldValue::Number(v.clamp(min, max));
                             }
@@ -1981,6 +2386,203 @@ impl NodeGraph {
             }
         }
         false
+    }
+
+    /// Push the post-mutation text from `field_edit` back into the active
+    /// field's `FieldValue`, after a key-driven edit (backspace, delete,
+    /// undo, paste, ...). Mirrors what `apply_text_input` does for inserts.
+    fn sync_active_field_from_edit_buffer(&mut self) {
+        let Some(fref) = self.active_field else {
+            return;
+        };
+        let new_val = self.field_edit.text.clone();
+        let kind = match self.get_field(fref) {
+            Some(f) => f.kind.clone(),
+            None => return,
+        };
+        match kind {
+            FieldKind::Text => {
+                if let Some(f) = self.get_field_mut(fref) {
+                    f.value = FieldValue::Text(new_val);
+                }
+            }
+            FieldKind::FilePath { .. } => {
+                if let Some(f) = self.get_field_mut(fref) {
+                    f.value = FieldValue::FilePath(PathBuf::from(new_val));
+                }
+            }
+            FieldKind::Number { min, max, .. } => {
+                if let Ok(v) = new_val.trim().parse::<f32>() {
+                    if let Some(f) = self.get_field_mut(fref) {
+                        f.value = FieldValue::Number(v.clamp(min, max));
+                    }
+                }
+            }
+            FieldKind::Select { .. } | FieldKind::Bool => {}
+        }
+        self.mark_dirty(fref.node_id);
+    }
+
+    /// Dispatch a key event to the active field's editor. Returns
+    /// [`EventResult::Consumed`] if the key was handled (cursor moved,
+    /// text mutated, undo/redo, copy/cut/paste, select-all). Enter and
+    /// Escape are *not* handled here — those are still handled by the
+    /// caller (commit / cancel respectively) so the higher-level KeyPress
+    /// routing keeps its semantics.
+    /// If a Text field is active and has a cached TextInput, forward the
+    /// event to the library widget and sync the FieldValue from its post-
+    /// event text. Returns Some(result) if routed; None to indicate this
+    /// path doesn't apply (no active field, not a Text field, no cached
+    /// widget).
+    ///
+    /// Centralizing event routing through the library `TextInput` widget
+    /// kills the duplicate FieldEditState code path for Text fields and
+    /// gives us proper click-positioned cursor, selection rendering, and
+    /// all the keyboard editing the wave 1+2 fix wave already shipped.
+    fn route_text_event_to_input(
+        &mut self,
+        event: &Event,
+        theme: &Theme,
+    ) -> Option<EventResult> {
+        let fref = self.active_field?;
+        let kind = self
+            .graph
+            .nodes
+            .iter()
+            .find(|n| n.id == fref.node_id)?
+            .fields
+            .iter()
+            .find(|f| f.id == fref.field_id)?
+            .kind
+            .clone();
+        if !matches!(kind, FieldKind::Text) {
+            return None;
+        }
+        // Layout TextInput to the field's screen rect so its hit-testing
+        // (used for click-positioning) sees the right coordinates, then
+        // forward.
+        let world_rect = self.field_rects.get(&fref).copied()?;
+        let screen_rect = self.to_screen_rect(world_rect);
+        let result = if let Some(FieldWidgetEntry::Text(ti)) =
+            self.field_widgets.get_mut(&fref)
+        {
+            ti.layout(screen_rect, theme);
+            // Force focused — TextInput clears focus on outside-click and
+            // we may have set active_field via a different code path.
+            // TextInput's KeyPress branch checks focused before consuming.
+            <TextInput as erigui_core::Widget>::set_focused(ti, true);
+            let r = ti.handle_event(event, theme);
+            if matches!(r, EventResult::Consumed) {
+                let new_text = ti.text().to_string();
+                Some((r, new_text))
+            } else {
+                Some((r, String::new()))
+            }
+        } else {
+            None
+        };
+        match result {
+            Some((r, new_text)) if matches!(r, EventResult::Consumed) => {
+                if let Some(field) = self.get_field_mut(fref) {
+                    if let FieldValue::Text(ref s) = field.value {
+                        if *s != new_text {
+                            field.value = FieldValue::Text(new_text);
+                            self.mark_dirty(fref.node_id);
+                        }
+                    }
+                }
+                Some(r)
+            }
+            Some((r, _)) => Some(r),
+            None => None,
+        }
+    }
+
+    fn handle_edit_key(&mut self, key: &KeyPressEvent) -> EventResult {
+        if self.active_field.is_none() {
+            return EventResult::Ignored;
+        }
+        let shift = key.modifiers.contains(Modifiers::SHIFT);
+        let ctrl = key.modifiers.contains(Modifiers::CTRL);
+        match key.key {
+            erigui_core::Key::Left => {
+                let dir = if ctrl { CursorMove::WordLeft } else { CursorMove::Left };
+                self.field_edit.move_cursor(dir, shift);
+                EventResult::Consumed
+            }
+            erigui_core::Key::Right => {
+                let dir = if ctrl { CursorMove::WordRight } else { CursorMove::Right };
+                self.field_edit.move_cursor(dir, shift);
+                EventResult::Consumed
+            }
+            erigui_core::Key::Home => {
+                self.field_edit.move_cursor(CursorMove::Home, shift);
+                EventResult::Consumed
+            }
+            erigui_core::Key::End => {
+                self.field_edit.move_cursor(CursorMove::End, shift);
+                EventResult::Consumed
+            }
+            erigui_core::Key::Backspace => {
+                self.field_edit.delete_selection_or_one_back();
+                self.sync_active_field_from_edit_buffer();
+                EventResult::Consumed
+            }
+            erigui_core::Key::Delete => {
+                self.field_edit.delete_selection_or_one_forward();
+                self.sync_active_field_from_edit_buffer();
+                EventResult::Consumed
+            }
+            erigui_core::Key::A if ctrl => {
+                self.field_edit.select_all();
+                EventResult::Consumed
+            }
+            erigui_core::Key::C if ctrl => {
+                let sel = self.field_edit.selected_text().to_owned();
+                if !sel.is_empty() {
+                    crate::clipboard::set_clipboard(&sel);
+                }
+                EventResult::Consumed
+            }
+            erigui_core::Key::X if ctrl => {
+                let sel = self.field_edit.selected_text().to_owned();
+                if !sel.is_empty() {
+                    crate::clipboard::set_clipboard(&sel);
+                    self.field_edit.replace_selection("");
+                    self.sync_active_field_from_edit_buffer();
+                }
+                EventResult::Consumed
+            }
+            erigui_core::Key::V if ctrl => {
+                let pasted = crate::clipboard::get_clipboard();
+                if !pasted.is_empty() {
+                    // Single-line: strip newlines so a multi-line paste
+                    // doesn't break field rendering.
+                    let cleaned: String =
+                        pasted.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+                    if !cleaned.is_empty() {
+                        self.field_edit.insert_text(&cleaned);
+                        self.sync_active_field_from_edit_buffer();
+                    }
+                }
+                EventResult::Consumed
+            }
+            erigui_core::Key::Z if ctrl => {
+                if shift {
+                    self.field_edit.redo();
+                } else {
+                    self.field_edit.undo();
+                }
+                self.sync_active_field_from_edit_buffer();
+                EventResult::Consumed
+            }
+            erigui_core::Key::Y if ctrl => {
+                self.field_edit.redo();
+                self.sync_active_field_from_edit_buffer();
+                EventResult::Consumed
+            }
+            _ => EventResult::Ignored,
+        }
     }
 }
 
@@ -2084,6 +2686,16 @@ impl Widget for NodeGraph {
             },
             Event::TextInput(te) => {
                 self.state.focused = true;
+                // First try routing through the cached library TextInput
+                // (the library widget IS the editor for Text fields). If
+                // it consumed, return; else fall through to the legacy
+                // FieldEditState path which handles non-Text fields and
+                // provides backstop for Text when the cache is missing.
+                if let Some(r) = self.route_text_event_to_input(event, theme) {
+                    if matches!(r, EventResult::Consumed) {
+                        return r;
+                    }
+                }
                 if self.apply_text_input(&te.text) {
                     if let Some(active) = self.active_field {
                         self.sync_field_widget_from_value(active);
@@ -2309,10 +2921,34 @@ impl Widget for NodeGraph {
                                             self.route_press_to_slider(field_ref, ev, theme);
                                         }
                                         FieldKind::Text => {
-                                            let edit = self.field_value_str(&field_snapshot);
+                                            // Route through the cached library
+                                            // TextInput widget — it's the source
+                                            // of truth for cursor/selection/edit
+                                            // logic. Sync first so its text
+                                            // matches the field, then layout it
+                                            // to the field's screen rect so
+                                            // hit-testing inside TextInput uses
+                                            // correct coordinates, then forward
+                                            // the click to position the cursor.
                                             self.active_field = Some(field_ref);
-                                            self.field_edit = edit;
                                             self.state.focused = true;
+                                            self.ensure_field_widgets();
+                                            self.sync_field_widget_from_value(field_ref);
+                                            if let Some(world_rect) =
+                                                self.field_rects.get(&field_ref).copied()
+                                            {
+                                                let screen_rect =
+                                                    self.to_screen_rect(world_rect);
+                                                if let Some(FieldWidgetEntry::Text(ti)) =
+                                                    self.field_widgets.get_mut(&field_ref)
+                                                {
+                                                    ti.layout(screen_rect, theme);
+                                                    let _ = ti.handle_event(
+                                                        &Event::MouseButton(*ev),
+                                                        theme,
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2506,7 +3142,8 @@ impl Widget for NodeGraph {
                                     | FieldKind::Number { .. }
                             ) {
                                 self.active_field = Some(hov);
-                                self.field_edit = self.field_value_str(&f_snapshot);
+                                self.field_edit =
+                                    FieldEditState::new(self.field_value_str(&f_snapshot));
                             }
                         }
                     }
@@ -2514,29 +3151,6 @@ impl Widget for NodeGraph {
 
                 if let Some(active) = self.active_field {
                     match key.key {
-                        erigui_core::Key::Backspace => {
-                            self.field_edit.pop();
-                            let edit = self.field_edit.clone();
-                            if let Some(field) = self.get_field_mut(active) {
-                                match &field.kind {
-                                    FieldKind::Text => {
-                                        field.value = FieldValue::Text(edit);
-                                    }
-                                    FieldKind::FilePath { .. } => {
-                                        field.value = FieldValue::FilePath(PathBuf::from(edit));
-                                    }
-                                    FieldKind::Number { min, max, .. } => {
-                                        if let Ok(v) = edit.trim().parse::<f32>() {
-                                            field.value =
-                                                FieldValue::Number(v.clamp(*min, *max));
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            self.mark_dirty(active.node_id);
-                            return EventResult::Consumed;
-                        }
                         erigui_core::Key::Enter => {
                             self.commit_field_edit();
                             return EventResult::Consumed;
@@ -2546,15 +3160,38 @@ impl Widget for NodeGraph {
                             return EventResult::Consumed;
                         }
                         _ => {
+                            // Wave 4: route Text-field key events through
+                            // the cached library TextInput. Falls through
+                            // to legacy handle_edit_key for non-Text fields.
+                            if let Some(r) = self.route_text_event_to_input(event, theme) {
+                                if matches!(r, EventResult::Consumed) {
+                                    return r;
+                                }
+                            }
+                            // Route arrows, Home/End, Backspace, Delete,
+                            // Ctrl+A/C/X/V/Z/Y through the editor first.
+                            // `handle_edit_key` returns Ignored for keys
+                            // it doesn't claim, in which case we fall
+                            // through to the printable-char path.
+                            let r = self.handle_edit_key(key);
+                            if matches!(r, EventResult::Consumed) {
+                                self.sync_field_widget_from_value(active);
+                                return EventResult::Consumed;
+                            }
                             // Wave 1 (A3): translate printable KeyPress events into
                             // character input on the active field. The host normally
                             // sends Event::TextInput for typed characters, but tests
                             // and some headless drivers fire only KeyPress events.
-                            if let Some(ch) = Self::keypress_to_char(key) {
-                                let s = ch.to_string();
-                                if self.apply_text_input(&s) {
-                                    self.sync_field_widget_from_value(active);
-                                    return EventResult::Consumed;
+                            // Skip when Ctrl is held — those are reserved for
+                            // editor shortcuts handled above (and any unhandled
+                            // ones, e.g. Ctrl+S, should NOT type a literal "s").
+                            if !key.modifiers.contains(Modifiers::CTRL) {
+                                if let Some(ch) = Self::keypress_to_char(key) {
+                                    let s = ch.to_string();
+                                    if self.apply_text_input(&s) {
+                                        self.sync_field_widget_from_value(active);
+                                        return EventResult::Consumed;
+                                    }
                                 }
                             }
                             return EventResult::Ignored;
@@ -2776,4 +3413,408 @@ const MIN_NODE_SIZE: Size = Size {
 fn snap_point(p: &mut Point) {
     p.x = ((p.x + SNAP / 2) / SNAP) * SNAP;
     p.y = ((p.y + SNAP / 2) / SNAP) * SNAP;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_edit_basic() {
+        // 1. New state with "hello", cursor at end.
+        let mut s = FieldEditState::new("hello".to_string());
+        assert_eq!(s.text, "hello");
+        assert_eq!(s.cursor, 5);
+
+        // 2. Move cursor to position 2 ("he|llo").
+        s.cursor = 2;
+        s.selection_anchor = None;
+
+        // 3. Insert "X" -> "heXllo", cursor at 3.
+        s.insert_text("X");
+        assert_eq!(s.text, "heXllo");
+        assert_eq!(s.cursor, 3);
+
+        // 4. Backspace -> "hello", cursor at 2.
+        s.delete_selection_or_one_back();
+        assert_eq!(s.text, "hello");
+        assert_eq!(s.cursor, 2);
+
+        // 5. Select all + delete (forward) -> empty.
+        s.select_all();
+        assert_eq!(s.selected_text(), "hello");
+        s.delete_selection_or_one_forward();
+        assert_eq!(s.text, "");
+        assert_eq!(s.cursor, 0);
+        assert!(s.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn field_edit_word_motion_and_undo() {
+        // Word motion + undo/redo coverage in the same test so a
+        // single-test failure surfaces both regressions independently
+        // (each assertion below carries its own check).
+        let mut s = FieldEditState::new("foo bar  baz".to_string());
+        s.cursor = 0;
+        s.selection_anchor = None;
+
+        // WordRight: "foo" -> "bar"
+        s.move_cursor(CursorMove::WordRight, false);
+        assert_eq!(s.cursor, 4, "WordRight should land on 'b' of 'bar'");
+
+        // End -> last index
+        s.move_cursor(CursorMove::End, false);
+        assert_eq!(s.cursor, s.text.len());
+
+        // WordLeft from end -> "baz"
+        s.move_cursor(CursorMove::WordLeft, false);
+        assert_eq!(s.cursor, 9, "WordLeft from end should land on 'b' of 'baz'");
+
+        // Shift+WordLeft from 9 -> selects "  " (anchor=9, cursor=7)
+        s.move_cursor(CursorMove::WordLeft, true);
+        assert_eq!(s.cursor, 4);
+        assert_eq!(s.selection_anchor, Some(9));
+
+        // Replace selection
+        s.replace_selection("Q");
+        assert_eq!(s.text, "foo Qbaz");
+
+        // Undo restores prior state.
+        s.undo();
+        assert_eq!(s.text, "foo bar  baz");
+
+        // Redo re-applies it.
+        s.redo();
+        assert_eq!(s.text, "foo Qbaz");
+    }
+
+    #[test]
+    fn field_edit_utf8_multibyte_cursor_moves_by_char() {
+        // "héllo" — 'é' is 2 bytes (0xC3 0xA9). Total len = 6 bytes, 5 chars.
+        let mut s = FieldEditState::new("héllo".to_string());
+        assert_eq!(s.text.len(), 6);
+        s.cursor = 0;
+
+        // Right once: should land at byte 1 (after 'h').
+        s.move_cursor(CursorMove::Right, false);
+        assert_eq!(s.cursor, 1);
+
+        // Right again: should land at byte 3 (skipping the 2-byte 'é').
+        s.move_cursor(CursorMove::Right, false);
+        assert_eq!(s.cursor, 3, "must skip both bytes of 'é' as one char");
+
+        // Left from 3: back to 1 (single char step over 'é').
+        s.move_cursor(CursorMove::Left, false);
+        assert_eq!(s.cursor, 1);
+    }
+
+    #[test]
+    fn field_edit_backspace_at_start_is_noop() {
+        let mut s = FieldEditState::new("hello".to_string());
+        s.cursor = 0;
+        s.delete_selection_or_one_back();
+        assert_eq!(s.text, "hello");
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn field_edit_delete_at_end_is_noop() {
+        let mut s = FieldEditState::new("hello".to_string());
+        s.cursor = 5;
+        s.delete_selection_or_one_forward();
+        assert_eq!(s.text, "hello");
+        assert_eq!(s.cursor, 5);
+    }
+
+    #[test]
+    fn field_edit_select_all_then_type_replaces() {
+        let mut s = FieldEditState::new("hello world".to_string());
+        s.select_all();
+        assert_eq!(s.selected_text(), "hello world");
+        s.insert_text("X");
+        assert_eq!(s.text, "X");
+        assert_eq!(s.cursor, 1);
+        assert!(s.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn field_edit_shift_right_extends_selection_anchor_stays() {
+        let mut s = FieldEditState::new("hello".to_string());
+        s.cursor = 1;
+        s.selection_anchor = None;
+
+        s.move_cursor(CursorMove::Right, true);
+        assert_eq!(s.cursor, 2);
+        assert_eq!(s.selection_anchor, Some(1), "anchor should pin at start");
+
+        s.move_cursor(CursorMove::Right, true);
+        assert_eq!(s.cursor, 3);
+        assert_eq!(s.selection_anchor, Some(1), "anchor must NOT move");
+        assert_eq!(s.selected_text(), "el");
+    }
+
+    #[test]
+    fn field_edit_home_clears_selection_when_no_shift() {
+        let mut s = FieldEditState::new("hello".to_string());
+        s.cursor = 4;
+        s.selection_anchor = Some(1);
+
+        s.move_cursor(CursorMove::Home, false);
+        assert_eq!(s.cursor, 0);
+        assert!(s.selection_anchor.is_none(), "Home without shift must clear anchor");
+    }
+
+    #[test]
+    fn field_edit_redo_cleared_after_typing_post_undo() {
+        let mut s = FieldEditState::new("a".to_string());
+        s.cursor = 1;
+
+        s.insert_text("b");
+        assert_eq!(s.text, "ab");
+        s.undo();
+        assert_eq!(s.text, "a");
+
+        // Now type something different — redo of the original "b" should be lost.
+        s.insert_text("c");
+        assert_eq!(s.text, "ac");
+
+        s.redo();
+        // Redo should be a no-op; not bring "ab" back.
+        assert_eq!(s.text, "ac", "redo must be invalidated after a new edit");
+    }
+
+    #[test]
+    fn field_edit_word_boundaries_skip_punctuation() {
+        // Punctuation is non-word, treated like whitespace for jumps.
+        let mut s = FieldEditState::new("hello, world!".to_string());
+        s.cursor = 0;
+
+        // Egui-style WordRight: skip the word AND following non-word run
+        // in one jump. From 0 in "hello, world!": skip "hello" then ", "
+        // → lands at start of "world" (byte 7).
+        s.move_cursor(CursorMove::WordRight, false);
+        assert_eq!(s.cursor, 7);
+
+        // From 7: skip "world" then "!" (no trailing chars) → end-of-text.
+        s.move_cursor(CursorMove::WordRight, false);
+        assert_eq!(s.cursor, 13);
+    }
+
+    #[test]
+    fn field_edit_select_word_at_inside_word() {
+        let mut s = FieldEditState::new("foo bar baz".to_string());
+        s.select_word_at(5); // middle of "bar"
+        assert_eq!(s.selected_text(), "bar");
+    }
+
+    #[test]
+    fn field_edit_select_word_at_in_whitespace_is_noop() {
+        let mut s = FieldEditState::new("foo bar".to_string());
+        // Position 3 is the space — both boundaries collapse, no selection.
+        s.select_word_at(3);
+        // Either no selection OR an empty one.
+        assert!(s.selected_text().is_empty());
+    }
+
+    #[test]
+    fn field_edit_select_word_at_empty_text_is_noop() {
+        let mut s = FieldEditState::new(String::new());
+        s.select_word_at(0);
+        assert_eq!(s.text, "");
+        assert!(s.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn field_edit_replace_selection_with_empty_deletes() {
+        let mut s = FieldEditState::new("hello world".to_string());
+        s.cursor = 5;
+        s.selection_anchor = Some(0);
+        // Selected "hello".
+        s.replace_selection("");
+        assert_eq!(s.text, " world");
+        assert_eq!(s.cursor, 0);
+        assert!(s.selection_anchor.is_none());
+    }
+
+    #[test]
+    fn field_edit_insert_at_cursor_no_selection() {
+        let mut s = FieldEditState::new("ac".to_string());
+        s.cursor = 1;
+        s.insert_text("b");
+        assert_eq!(s.text, "abc");
+        assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn field_edit_select_line_is_select_all() {
+        let mut s = FieldEditState::new("hello".to_string());
+        s.select_line();
+        assert_eq!(s.selected_text(), "hello");
+    }
+
+    // Integration: end-to-end click-then-type flow, the actual user path
+    // that "edit does not work" complaints come from. This is what real
+    // event dispatch through NodeGraph::handle_event does.
+    #[test]
+    fn text_field_click_then_type_inserts_char() {
+        use erigui_core::{
+            Event, KeyPressEvent, Modifiers, MouseButton, MouseButtonEvent, TextInputEvent,
+        };
+
+        let theme = Theme::dark();
+        let mut g = NodeGraph::new(WidgetId::default(), Graph::default());
+
+        let fref = FieldRef {
+            node_id: 1,
+            field_id: 0,
+        };
+        let node = Node {
+            id: 1,
+            title: "TestNode".to_string(),
+            position: Point::new(0, 0),
+            size: Size::new(300, 200),
+            inputs: vec![],
+            outputs: vec![],
+            fields: vec![Field {
+                id: 0,
+                name: "text".into(),
+                label: "Text".into(),
+                kind: FieldKind::Text,
+                value: FieldValue::Text("hello".into()),
+            }],
+            component_type: None,
+        };
+        g.graph.nodes.push(node);
+        g.layout(Rect::new(0, 0, 800, 600), &theme);
+
+        let world_rect = g
+            .field_rects
+            .get(&fref)
+            .copied()
+            .expect("field rect must exist after layout");
+        let screen_rect = g.to_screen_rect(world_rect);
+        let click_pos = Point::new(
+            screen_rect.x() + screen_rect.width() / 2,
+            screen_rect.y() + screen_rect.height() / 2,
+        );
+
+        // Click on the field to activate it.
+        let click = MouseButtonEvent {
+            button: MouseButton::Left,
+            pressed: true,
+            position: click_pos,
+            modifiers: Modifiers::empty(),
+        };
+        g.handle_event(&Event::MouseButton(click), &theme);
+        assert_eq!(
+            g.active_field,
+            Some(fref),
+            "click on Text field should set active_field"
+        );
+
+        // Synth TextInput("X") — what the renderer emits when user types X.
+        let _ = g.handle_event(
+            &Event::TextInput(TextInputEvent {
+                text: "X".to_string(),
+            }),
+            &theme,
+        );
+
+        // The Field's value must now reflect the typed character.
+        let v = &g.graph.nodes[0].fields[0].value;
+        match v {
+            FieldValue::Text(s) => {
+                assert!(
+                    s.contains('X'),
+                    "expected 'X' in field value after typing, got: {s:?}"
+                );
+                assert_ne!(s, "hello", "field value must have CHANGED from initial");
+            }
+            _ => panic!("field should still be FieldValue::Text"),
+        }
+
+        // Backspace should remove the X.
+        let bs = KeyPressEvent {
+            key: erigui_core::Key::Backspace,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        };
+        g.handle_event(&Event::KeyPress(bs), &theme);
+        let v = &g.graph.nodes[0].fields[0].value;
+        match v {
+            FieldValue::Text(s) => {
+                assert!(
+                    !s.contains('X'),
+                    "backspace should have removed 'X', got: {s:?}"
+                );
+            }
+            _ => panic!("field should still be FieldValue::Text"),
+        }
+    }
+
+    /// Click in the LEFT portion of a text field. Cursor should land near
+    /// the start, not at the end. This is what double-click-to-edit-then-
+    /// type-in-the-middle workflows depend on. With the FieldEditState
+    /// path this fails (cursor always lands at end).
+    #[test]
+    fn text_field_click_in_middle_positions_cursor() {
+        use erigui_core::{Event, MouseButton, MouseButtonEvent};
+
+        let theme = Theme::dark();
+        let mut g = NodeGraph::new(WidgetId::default(), Graph::default());
+
+        let fref = FieldRef { node_id: 1, field_id: 0 };
+        let node = Node {
+            id: 1,
+            title: "TestNode".to_string(),
+            position: Point::new(0, 0),
+            size: Size::new(400, 200),
+            inputs: vec![],
+            outputs: vec![],
+            fields: vec![Field {
+                id: 0,
+                name: "text".into(),
+                label: "Text".into(),
+                kind: FieldKind::Text,
+                value: FieldValue::Text("aaaaaaaaaaaaaaaaaaaa".into()), // 20 a's
+            }],
+            component_type: None,
+        };
+        g.graph.nodes.push(node);
+        g.layout(Rect::new(0, 0, 800, 600), &theme);
+
+        let world_rect = g.field_rects.get(&fref).copied().unwrap();
+        let screen_rect = g.to_screen_rect(world_rect);
+
+        // Click near the LEFT edge — should put cursor near 0, not at 20.
+        let click = MouseButtonEvent {
+            button: MouseButton::Left,
+            pressed: true,
+            position: Point::new(
+                screen_rect.x() + 8, // tiny offset from left edge
+                screen_rect.y() + screen_rect.height() / 2,
+            ),
+            modifiers: Modifiers::empty(),
+        };
+        g.handle_event(&Event::MouseButton(click), &theme);
+        assert_eq!(g.active_field, Some(fref));
+
+        // Pull cursor position from whatever editor is active. With the
+        // refactored path this comes from TextInput::cursor_pos via the
+        // cached widget. With the broken FieldEditState path, cursor is
+        // at the END (20), not near 0.
+        let cursor = if let Some(FieldWidgetEntry::Text(ti)) =
+            g.field_widgets.get(&fref)
+        {
+            ti.cursor_pos()
+        } else {
+            // Fallback: read from FieldEditState (current path).
+            g.field_edit.cursor
+        };
+
+        assert!(
+            cursor < 10,
+            "cursor should be in the left half after a left-edge click, got {cursor}"
+        );
+    }
 }

@@ -35,6 +35,7 @@ pub enum PaletteNodeKind {
 fn text_field(id: usize, label: &str, default: &str) -> Field {
     Field {
         id,
+        name: label.into(),
         label: label.into(),
         kind: FieldKind::Text,
         value: FieldValue::Text(default.into()),
@@ -51,6 +52,7 @@ fn number_field(
 ) -> Field {
     Field {
         id,
+        name: label.into(),
         label: label.into(),
         kind: FieldKind::Number { min, max, step },
         value: FieldValue::Number(default),
@@ -60,6 +62,7 @@ fn number_field(
 fn select_field(id: usize, label: &str, options: &[&str], default: &str) -> Field {
     Field {
         id,
+        name: label.into(),
         label: label.into(),
         kind: FieldKind::Select {
             options: options.iter().map(|s| s.to_string()).collect(),
@@ -234,6 +237,7 @@ impl GraphHandler {
                 fields: vec![
                     Field {
                         id: 0,
+                        name: "file".into(),
                         label: "file".into(),
                         kind: FieldKind::FilePath {
                             extensions: vec!["png".into(), "jpg".into(), "jpeg".into()],
@@ -242,6 +246,7 @@ impl GraphHandler {
                     },
                     Field {
                         id: 1,
+                        name: "preview".into(),
                         label: "preview".into(),
                         kind: FieldKind::Select {
                             options: vec!["none".into(), "small".into(), "full".into()],
@@ -353,12 +358,14 @@ impl GraphHandler {
                     fields: vec![
                         Field {
                             id: 0,
+                            name: "Model Path".into(),
                             label: "Model Path".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text("model.safetensors".into()),
                         },
                         Field {
                             id: 1,
+                            name: "VAE Path".into(),
                             label: "VAE Path".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text(
@@ -386,18 +393,21 @@ impl GraphHandler {
                     fields: vec![
                         Field {
                             id: 0,
+                            name: "Prompt".into(),
                             label: "Prompt".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text("A cozy cabin in the snow".into()),
                         },
                         Field {
                             id: 1,
+                            name: "Negative Prompt".into(),
                             label: "Negative Prompt".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text("blurry, low quality".into()),
                         },
                         Field {
                             id: 2,
+                            name: "Width".into(),
                             label: "Width".into(),
                             kind: FieldKind::Number {
                                 min: 1.0,
@@ -408,6 +418,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 3,
+                            name: "Height".into(),
                             label: "Height".into(),
                             kind: FieldKind::Number {
                                 min: 1.0,
@@ -418,6 +429,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 4,
+                            name: "Steps".into(),
                             label: "Steps".into(),
                             kind: FieldKind::Number {
                                 min: 1.0,
@@ -428,6 +440,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 5,
+                            name: "CFG Scale".into(),
                             label: "CFG Scale".into(),
                             kind: FieldKind::Number {
                                 min: 1.0,
@@ -438,6 +451,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 6,
+                            name: "Sampler".into(),
                             label: "Sampler".into(),
                             kind: FieldKind::Select {
                                 options: vec![
@@ -451,6 +465,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 7,
+                            name: "Seed".into(),
                             label: "Seed".into(),
                             kind: FieldKind::Number {
                                 min: -1.0,
@@ -461,6 +476,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 8,
+                            name: "Batch Size".into(),
                             label: "Batch Size".into(),
                             kind: FieldKind::Number {
                                 min: 1.0,
@@ -486,6 +502,7 @@ impl GraphHandler {
                     fields: vec![
                         Field {
                             id: 0,
+                            name: "VAE Path".into(),
                             label: "VAE Path".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text(
@@ -494,6 +511,7 @@ impl GraphHandler {
                         },
                         Field {
                             id: 1,
+                            name: "VAE Type".into(),
                             label: "VAE Type".into(),
                             kind: FieldKind::Select {
                                 options: vec!["standard".into(), "ema".into(), "mse".into()],
@@ -521,18 +539,21 @@ impl GraphHandler {
                     fields: vec![
                         Field {
                             id: 0,
+                            name: "Output Directory".into(),
                             label: "Output Directory".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text("/home/alex/Eri/output".into()),
                         },
                         Field {
                             id: 1,
+                            name: "Filename Pattern".into(),
                             label: "Filename Pattern".into(),
                             kind: FieldKind::Text,
                             value: FieldValue::Text("img_{seed}_{timestamp}".into()),
                         },
                         Field {
                             id: 2,
+                            name: "Format".into(),
                             label: "Format".into(),
                             kind: FieldKind::Select {
                                 options: vec!["PNG".into(), "JPEG".into(), "WEBP".into()],
@@ -1128,6 +1149,7 @@ pub fn default_graph() -> Graph {
         fields: vec![
             Field {
                 id: 0,
+                name: "Model Path".into(),
                 label: "Model Path".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text(
@@ -1137,6 +1159,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 1,
+                name: "VAE Path".into(),
                 label: "VAE Path".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text(
@@ -1165,18 +1188,21 @@ pub fn default_graph() -> Graph {
         fields: vec![
             Field {
                 id: 0,
+                name: "Prompt".into(),
                 label: "Prompt".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text("A cozy cabin in the snow".into()),
             },
             Field {
                 id: 1,
+                name: "Negative Prompt".into(),
                 label: "Negative Prompt".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text("blurry, low quality".into()),
             },
             Field {
                 id: 2,
+                name: "Width".into(),
                 label: "Width".into(),
                 kind: FieldKind::Number {
                     min: 1.0,
@@ -1187,6 +1213,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 3,
+                name: "Height".into(),
                 label: "Height".into(),
                 kind: FieldKind::Number {
                     min: 1.0,
@@ -1197,6 +1224,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 4,
+                name: "Steps".into(),
                 label: "Steps".into(),
                 kind: FieldKind::Number {
                     min: 1.0,
@@ -1207,6 +1235,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 5,
+                name: "CFG Scale".into(),
                 label: "CFG Scale".into(),
                 kind: FieldKind::Number {
                     min: 1.0,
@@ -1217,6 +1246,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 6,
+                name: "Sampler".into(),
                 label: "Sampler".into(),
                 kind: FieldKind::Select {
                     options: vec!["euler".into(), "ddim".into(), "dpmpp".into(), "heun".into()],
@@ -1225,6 +1255,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 7,
+                name: "Seed".into(),
                 label: "Seed".into(),
                 kind: FieldKind::Number {
                     min: -1.0,
@@ -1235,6 +1266,7 @@ pub fn default_graph() -> Graph {
             },
             Field {
                 id: 8,
+                name: "Batch Size".into(),
                 label: "Batch Size".into(),
                 kind: FieldKind::Number {
                     min: 1.0,
@@ -1265,18 +1297,21 @@ pub fn default_graph() -> Graph {
         fields: vec![
             Field {
                 id: 0,
+                name: "Output Directory".into(),
                 label: "Output Directory".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text("/home/alex/Eri/output".into()),
             },
             Field {
                 id: 1,
+                name: "Filename Pattern".into(),
                 label: "Filename Pattern".into(),
                 kind: FieldKind::Text,
                 value: FieldValue::Text("img_{seed}_{timestamp}".into()),
             },
             Field {
                 id: 2,
+                name: "Format".into(),
                 label: "Format".into(),
                 kind: FieldKind::Select {
                     options: vec!["PNG".into(), "JPEG".into(), "WEBP".into()],

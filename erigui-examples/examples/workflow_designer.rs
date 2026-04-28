@@ -497,6 +497,8 @@ impl App {
                     erigui_widgets::FieldValue::Text(text) => text,
                     erigui_widgets::FieldValue::Number(num) => format!("{num}"),
                     erigui_widgets::FieldValue::Select(choice) => choice,
+                    erigui_widgets::FieldValue::Bool(b) => b.to_string(),
+                    erigui_widgets::FieldValue::FilePath(p) => p.to_string_lossy().into_owned(),
                 };
                 self.property_lines.push(PropertyLine {
                     label: field.label,
@@ -652,6 +654,8 @@ impl App {
                 FieldValue::Text(t) => JsonValue::String(t.clone()),
                 FieldValue::Number(n) => json!(*n),
                 FieldValue::Select(s) => JsonValue::String(s.clone()),
+                FieldValue::Bool(b) => JsonValue::Bool(*b),
+                FieldValue::FilePath(p) => JsonValue::String(p.to_string_lossy().into_owned()),
             };
             map.insert(key, value);
         }
@@ -745,6 +749,8 @@ impl App {
                 FieldValue::Text(val) => Some(val.clone()),
                 FieldValue::Select(val) => Some(val.clone()),
                 FieldValue::Number(val) => Some(val.to_string()),
+                FieldValue::Bool(b) => Some(b.to_string()),
+                FieldValue::FilePath(p) => Some(p.to_string_lossy().into_owned()),
             })
             .filter(|s| !s.is_empty())
     }
@@ -757,6 +763,8 @@ impl App {
                 FieldValue::Number(val) => Some(*val),
                 FieldValue::Text(val) => val.parse::<f32>().ok(),
                 FieldValue::Select(_) => None,
+                FieldValue::Bool(_) => None,
+                FieldValue::FilePath(_) => None,
             })
     }
 

@@ -1,25 +1,33 @@
 use erigui_core::{Color, LayoutConfig, LayoutMode, Margins, Point, Rect, Size, Theme, Widget};
 use erigui_rendering::{convert_window_event, Renderer};
 use erigui_widgets::{Container, Label, MenuBar, MenuItem, TextAlign, WidgetId, WidgetManager};
+use std::collections::HashMap;
 
+// Container is a marker widget; it doesn't compute child layout. The
+// host stores per-container LayoutConfigs in this sidecar map and uses
+// them in `perform_container_layout` to position children.
 struct App {
     widget_manager: WidgetManager,
     root_container: WidgetId,
+    layouts: HashMap<WidgetId, LayoutConfig>,
 }
 
 impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
+        let mut layouts: HashMap<WidgetId, LayoutConfig> = HashMap::new();
 
         // Create root container
-        let root_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let root_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            root_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 0,
                 padding: Margins::all(0),
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Create menu bar
         let menu_bar_id = widget_manager.add_widget(Box::new(MenuBar::new(WidgetId::default())));
@@ -99,14 +107,17 @@ impl App {
         }
 
         // Create content area
-        let content_container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let content_container_id =
+            widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            content_container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 20,
                 padding: Margins::all(20),
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Add content labels
         let title_id = widget_manager.add_widget(Box::new(
@@ -130,10 +141,12 @@ impl App {
             .with_color(Color::rgb(100, 150, 200)),
         ));
 
-        // Build hierarchy
+        // Build hierarchy. (Pre-strip code used `add_flex_child(...)` for
+        // the content container; flex was already a no-op here -- the
+        // example walker assigns flex height equally regardless.)
         let root = widget_manager.get_typed_mut::<Container>(root_id).unwrap();
         root.add_child(menu_bar_id);
-        root.add_flex_child(content_container_id, 1.0);
+        root.add_child(content_container_id);
 
         let content = widget_manager
             .get_typed_mut::<Container>(content_container_id)
@@ -145,6 +158,7 @@ impl App {
         Self {
             widget_manager,
             root_container: root_id,
+            layouts,
         }
     }
 
@@ -160,11 +174,11 @@ impl App {
 
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
-            let layout_info = container.get_layout_info();
-            let children = container.children().to_vec();
-            let bounds = container.bounds();
-
-            self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            if let Some(layout_info) = self.layouts.get(&parent_id).cloned() {
+                let children = container.children().to_vec();
+                let bounds = container.bounds();
+                self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            }
         }
 
         let children: Vec<WidgetId> = if let Some(parent) = self.widget_manager.get(parent_id) {
@@ -196,21 +210,24 @@ impl App {
                 let mut flex_items = Vec::new();
                 let mut fixed_height = 0;
 
-                // First pass: measure fixed items (including menu bar)
+                // First pass: measure fixed items (including menu bar).
+                // A nested Container with a recorded layout is treated as
+                // flex (it expands).
                 for &child_id in children {
-                    if let Some(child) = self.widget_manager.get(child_id) {
+                    if self.widget_manager.get(child_id).is_some() {
                         // Check if it's a menu bar
                         if self.widget_manager.get_typed::<MenuBar>(child_id).is_some() {
                             let menu_height = 25; // Fixed height for menu bar
                             fixed_height += menu_height;
-                        } else if let Some(container) =
-                            self.widget_manager.get_typed::<Container>(child_id)
-                        {
-                            let flex_children = container.get_layout_info();
-                            if flex_children.mode != LayoutMode::None {
-                                flex_items.push(child_id);
-                                continue;
+                        } else if self.widget_manager.get_typed::<Container>(child_id).is_some() {
+                            if let Some(child_layout) = self.layouts.get(&child_id) {
+                                if child_layout.mode != LayoutMode::None {
+                                    flex_items.push(child_id);
+                                    continue;
+                                }
                             }
+                            let child_height = 50;
+                            fixed_height += child_height + spacing;
                         } else {
                             let child_height = 50; // Default height for labels/buttons
                             fixed_height += child_height + spacing;

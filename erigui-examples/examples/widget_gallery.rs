@@ -7,27 +7,35 @@ use erigui_widgets::{
     Button, Container, Label, ListItem, ListView, TextAlign, TextInput, TreeNode,
     TreeView, WidgetId, WidgetManager,
 };
+use std::collections::HashMap;
 
+// Container is a marker widget; it doesn't compute child layout. The
+// host stores per-container LayoutConfigs in this sidecar map and uses
+// them in `perform_container_layout` to position children.
 struct App {
     widget_manager: WidgetManager,
     theme_manager: ThemeManager,
     root_container: WidgetId,
+    layouts: HashMap<WidgetId, LayoutConfig>,
 }
 
 impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
         let theme_manager = ThemeManager::new();
+        let mut layouts: HashMap<WidgetId, LayoutConfig> = HashMap::new();
 
         // Create root container
-        let root_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let root_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            root_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 16,
                 padding: Margins::all(16),
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Title
         let title_id = widget_manager.add_widget(Box::new(
@@ -35,40 +43,47 @@ impl App {
         ));
 
         // Buttons section
-        let button_section = Self::create_button_section(&mut widget_manager);
+        let button_section = Self::create_button_section(&mut widget_manager, &mut layouts);
 
         // Input section
-        let input_section = Self::create_input_section(&mut widget_manager);
+        let input_section = Self::create_input_section(&mut widget_manager, &mut layouts);
 
         // List section
-        let list_section = Self::create_list_section(&mut widget_manager);
+        let list_section = Self::create_list_section(&mut widget_manager, &mut layouts);
 
         // Tree section
-        let tree_section = Self::create_tree_section(&mut widget_manager);
+        let tree_section = Self::create_tree_section(&mut widget_manager, &mut layouts);
 
-        // Add all sections to root
+        // Add all sections to root. Container is a marker now -- it just
+        // tracks ids; the host walker positions them.
         let root = widget_manager.get_typed_mut::<Container>(root_id).unwrap();
         root.add_child(title_id);
         root.add_child(button_section);
         root.add_child(input_section);
-        root.add_flex_child(list_section, 1.0);
-        root.add_flex_child(tree_section, 1.0);
+        root.add_child(list_section);
+        root.add_child(tree_section);
 
         Self {
             widget_manager,
             theme_manager,
             root_container: root_id,
+            layouts,
         }
     }
 
-    fn create_button_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_button_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Horizontal,
                 spacing: 8,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Create buttons
         let button1_id = widget_manager.add_widget(Box::new(
@@ -97,14 +112,19 @@ impl App {
         container_id
     }
 
-    fn create_input_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_input_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Horizontal,
                 spacing: 8,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let label_id =
             widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Text Input:")));
@@ -125,14 +145,19 @@ impl App {
         container_id
     }
 
-    fn create_list_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_list_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 8,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let label_id =
             widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "List View:")));
@@ -188,14 +213,19 @@ impl App {
         container_id
     }
 
-    fn create_tree_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_tree_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 8,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let label_id =
             widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Tree View:")));
@@ -283,15 +313,15 @@ impl App {
     }
 
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
-        // Check if parent is a container and perform its layout logic
+        // If parent is a Container with a recorded layout config, run the
+        // host-owned layout walker for it. Container itself does NOT
+        // compute child bounds.
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
-            // Get a closure that can access the widget manager
-            let layout_info = container.get_layout_info();
-            let children = container.children().to_vec();
-            let bounds = container.bounds();
-
-            // Perform container layout
-            self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            if let Some(layout_info) = self.layouts.get(&parent_id).cloned() {
+                let children = container.children().to_vec();
+                let bounds = container.bounds();
+                self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            }
         }
 
         // Get children IDs to recurse

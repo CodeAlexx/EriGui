@@ -8,9 +8,9 @@
 //! regression net.
 
 use erigui_core::{
-    Color, DrawContext, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConfig,
-    LayoutConstraints, LayoutMode, Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent,
-    MouseWheelEvent, Point, Rect, ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
+    Color, DrawContext, Event, EventResult, FocusEvent, Key, KeyPressEvent, LayoutConstraints,
+    Modifiers, MouseButton, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point, Rect,
+    ResizeEvent, Size, TextInputEvent, Theme, Widget, WidgetId,
 };
 use erigui_widgets::{
     Container, Icon, Label, SeparatorStyle, StatusBar, StatusPanel, StatusPanelWidth, TextAlign,
@@ -204,11 +204,17 @@ fn label_ignores_all_events() {
 // Container
 // ============================================================================
 //
-// Container is a layout primitive. The actual child-positioning logic lives
-// in a private layout_children method that takes a `widgets` callback that
-// the public API doesn't expose to outside callers, so these tests focus
-// on the parts that ARE observable: the children list, the LayoutConfig,
-// the Widget-trait surface, and "events are ignored / doesn't panic."
+// Container is a marker / parent-id holder. It tracks a child id list and
+// reflects its own bounds, but does NOT compute child bounds. The
+// previously-documented `LayoutConfig` / `LayoutMode` builder API was
+// misleading -- the layout walker required mutable access to the widget
+// manager that Container does not own -- and has been removed. Hosts that
+// want flex/vertical/horizontal/grid layout must compute it themselves.
+// See `erigui-app` and `node_graph` for the host-owned-layout pattern.
+//
+// Tests below cover the surface that still exists: children list, the
+// Widget-trait surface, "events are ignored", "layout sets bounds and does
+// NOT touch existing child widgets" (the marker contract).
 //
 // Mint distinct child WidgetIds via a SlotMap; WidgetId is just
 // `slotmap::DefaultKey`, so this is the same mechanism erigui-widgets uses
@@ -226,31 +232,6 @@ fn container_creation_defaults() {
     assert!(c.is_visible());
     assert!(c.is_enabled());
     assert!(!c.can_focus(), "Container does not participate in focus");
-    assert_eq!(c.get_layout_info().mode, LayoutMode::None);
-}
-
-#[test]
-fn container_with_layout_builder_round_trips_mode() {
-    let cfg = LayoutConfig {
-        mode: LayoutMode::Vertical,
-        spacing: 8,
-        ..LayoutConfig::default()
-    };
-    let c = Container::new(test_id()).with_layout(cfg);
-    let info = c.get_layout_info();
-    assert_eq!(info.mode, LayoutMode::Vertical);
-    assert_eq!(info.spacing, 8);
-}
-
-#[test]
-fn container_set_layout_mode_round_trips() {
-    let mut c = Container::new(test_id());
-    c.set_layout_mode(LayoutMode::Horizontal);
-    assert_eq!(c.get_layout_info().mode, LayoutMode::Horizontal);
-    c.set_layout_mode(LayoutMode::Grid { columns: 3 });
-    assert_eq!(c.get_layout_info().mode, LayoutMode::Grid { columns: 3 });
-    c.set_layout_mode(LayoutMode::None);
-    assert_eq!(c.get_layout_info().mode, LayoutMode::None);
 }
 
 #[test]
@@ -261,19 +242,6 @@ fn container_add_child_appends() {
     let id_b = next();
     c.add_child(id_a);
     c.add_child(id_b);
-    assert_eq!(c.children().len(), 2);
-    assert_eq!(c.children()[0], id_a);
-    assert_eq!(c.children()[1], id_b);
-}
-
-#[test]
-fn container_add_flex_child_appends() {
-    let mut next = id_factory();
-    let mut c = Container::new(test_id());
-    let id_a = next();
-    let id_b = next();
-    c.add_flex_child(id_a, 1.0);
-    c.add_flex_child(id_b, 2.0);
     assert_eq!(c.children().len(), 2);
     assert_eq!(c.children()[0], id_a);
     assert_eq!(c.children()[1], id_b);
@@ -309,7 +277,7 @@ fn container_clear_children_empties_list() {
     let mut c = Container::new(test_id());
     c.add_child(next());
     c.add_child(next());
-    c.add_flex_child(next(), 1.0);
+    c.add_child(next());
     assert_eq!(c.children().len(), 3);
     c.clear_children();
     assert_eq!(c.children().len(), 0);
@@ -328,22 +296,36 @@ fn container_layout_sets_bounds() {
 }
 
 #[test]
-fn container_measure_returns_nonnegative_size_in_each_mode() {
+fn container_layout_is_marker_only() {
+    // Container::layout sets ITS OWN bounds. It must NOT mutate any of the
+    // child WidgetIds it tracks (Container has no widget-manager handle to
+    // do so anyway). Verify by asserting the child id list is unchanged
+    // before/after a layout call -- the marker contract.
+    let mut next = id_factory();
+    let theme = default_theme();
+    let mut c = Container::new(test_id());
+    let id_a = next();
+    let id_b = next();
+    c.add_child(id_a);
+    c.add_child(id_b);
+
+    let before: Vec<WidgetId> = c.children().to_vec();
+    c.layout(Rect::new(0, 0, 200, 100), &theme);
+    let after: Vec<WidgetId> = c.children().to_vec();
+
+    assert_eq!(before, after, "Container::layout must not modify child id list");
+    // Self-bounds DID get set.
+    assert_eq!(c.bounds(), Rect::new(0, 0, 200, 100));
+}
+
+#[test]
+fn container_measure_returns_nonnegative_size() {
     let theme = default_theme();
     let constraints = LayoutConstraints::bounded(400, 300);
-
-    for mode in [
-        LayoutMode::None,
-        LayoutMode::Vertical,
-        LayoutMode::Horizontal,
-        LayoutMode::Grid { columns: 2 },
-    ] {
-        let mut c = Container::new(test_id());
-        c.set_layout_mode(mode);
-        let size = c.measure(&constraints, &theme);
-        assert!(size.width >= 0, "{:?} produced negative width", mode);
-        assert!(size.height >= 0, "{:?} produced negative height", mode);
-    }
+    let c = Container::new(test_id());
+    let size = c.measure(&constraints, &theme);
+    assert!(size.width >= 0);
+    assert!(size.height >= 0);
 }
 
 #[test]
@@ -647,13 +629,13 @@ fn status_bar_separator_sunken_reserves_two_pixel_gap() {
 }
 
 #[test]
-fn container_add_remove_does_not_panic_when_layout_mode_is_grid() {
-    // Smoke: switch to Grid mode (which has a different measure path) and
-    // exercise child mutations + measure end-to-end.
+fn container_add_many_children_then_clear_does_not_panic() {
+    // Smoke: exercise add_child + layout + measure + clear_children with
+    // many children. Container is now a marker so there's no per-mode
+    // measure path, but the bookkeeping must still be panic-free.
     let theme = default_theme();
     let mut next = id_factory();
     let mut c = Container::new(test_id());
-    c.set_layout_mode(LayoutMode::Grid { columns: 3 });
     for _ in 0..7 {
         c.add_child(next());
     }

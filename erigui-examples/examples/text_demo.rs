@@ -3,25 +3,33 @@ use erigui_core::{
 };
 use erigui_rendering::{convert_window_event, Renderer};
 use erigui_widgets::{Button, Container, Label, TextAlign, TextInput, WidgetId, WidgetManager};
+use std::collections::HashMap;
 
+// Container is a marker widget; it doesn't compute child layout. The
+// host stores per-container LayoutConfigs in this sidecar map and uses
+// them in `perform_container_layout` to position children.
 struct App {
     widget_manager: WidgetManager,
     root_container: WidgetId,
+    layouts: HashMap<WidgetId, LayoutConfig>,
 }
 
 impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
+        let mut layouts: HashMap<WidgetId, LayoutConfig> = HashMap::new();
 
         // Create root container
-        let root_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let root_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            root_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 20,
                 padding: Margins::all(20),
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Title - Large centered text
         let title_id = widget_manager.add_widget(Box::new(
@@ -80,13 +88,16 @@ impl App {
         )));
 
         // Text input section
-        let input_container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let input_container_id =
+            widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            input_container_id,
+            LayoutConfig {
                 mode: LayoutMode::Horizontal,
                 spacing: 10,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let input_label_id =
             widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Type here:")));
@@ -97,13 +108,16 @@ impl App {
         ));
 
         // Button with text
-        let button_container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let button_container_id =
+            widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            button_container_id,
+            LayoutConfig {
                 mode: LayoutMode::Horizontal,
                 spacing: 10,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let button1_id =
             widget_manager.add_widget(Box::new(Button::new(WidgetId::default(), "Short Text")));
@@ -142,12 +156,14 @@ impl App {
         root.add_child(button_container_id);
         root.add_child(disabled_label_id);
 
-        // Add children to input container
+        // Add children to input container. (Pre-strip code used
+        // `add_flex_child(text_input_id, 1.0)`; flex was already a no-op
+        // in the example walker so plain `add_child` matches behavior.)
         let input_container = widget_manager
             .get_typed_mut::<Container>(input_container_id)
             .unwrap();
         input_container.add_child(input_label_id);
-        input_container.add_flex_child(text_input_id, 1.0);
+        input_container.add_child(text_input_id);
 
         // Add buttons to button container
         let button_container = widget_manager
@@ -160,6 +176,7 @@ impl App {
         Self {
             widget_manager,
             root_container: root_id,
+            layouts,
         }
     }
 
@@ -175,11 +192,11 @@ impl App {
 
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
-            let layout_info = container.get_layout_info();
-            let children = container.children().to_vec();
-            let bounds = container.bounds();
-
-            self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            if let Some(layout_info) = self.layouts.get(&parent_id).cloned() {
+                let children = container.children().to_vec();
+                let bounds = container.bounds();
+                self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            }
         }
 
         let children: Vec<WidgetId> = if let Some(parent) = self.widget_manager.get(parent_id) {
@@ -211,16 +228,16 @@ impl App {
                 let mut flex_items = Vec::new();
                 let mut fixed_height = 0;
 
-                // First pass: measure fixed items
+                // First pass: measure fixed items. A nested Container with
+                // a recorded layout is treated as flex (it expands).
                 for &child_id in children {
-                    if let Some(child) = self.widget_manager.get(child_id) {
-                        if let Some(container) =
-                            self.widget_manager.get_typed::<Container>(child_id)
-                        {
-                            let flex_children = container.get_layout_info();
-                            if flex_children.mode != LayoutMode::None {
-                                flex_items.push(child_id);
-                                continue;
+                    if self.widget_manager.get(child_id).is_some() {
+                        if self.widget_manager.get_typed::<Container>(child_id).is_some() {
+                            if let Some(child_layout) = self.layouts.get(&child_id) {
+                                if child_layout.mode != LayoutMode::None {
+                                    flex_items.push(child_id);
+                                    continue;
+                                }
                             }
                         }
 

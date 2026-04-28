@@ -4,29 +4,37 @@ use erigui_widgets::{
     Checkbox, Container, Label, ProgressBar, ProgressBarStyle, Slider, SliderOrientation,
     TextAlign, WidgetId, WidgetManager,
 };
+use std::collections::HashMap;
 use std::time::Instant;
 
+// Container is a marker widget; it doesn't compute child layout. The
+// host stores per-container LayoutConfigs in this sidecar map and uses
+// them in `perform_container_layout` to position children.
 struct App {
     widget_manager: WidgetManager,
     root_container: WidgetId,
     progress_bar_id: WidgetId,
     animated_progress_id: WidgetId,
     last_update: Instant,
+    layouts: HashMap<WidgetId, LayoutConfig>,
 }
 
 impl App {
     fn new() -> Self {
         let mut widget_manager = WidgetManager::new();
+        let mut layouts: HashMap<WidgetId, LayoutConfig> = HashMap::new();
 
         // Create root container
-        let root_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let root_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            root_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 20,
                 padding: Margins::all(20),
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Title
         let title_id = widget_manager.add_widget(Box::new(
@@ -34,14 +42,14 @@ impl App {
         ));
 
         // Checkbox section
-        let checkbox_section = Self::create_checkbox_section(&mut widget_manager);
+        let checkbox_section = Self::create_checkbox_section(&mut widget_manager, &mut layouts);
 
         // Slider section
-        let slider_section = Self::create_slider_section(&mut widget_manager);
+        let slider_section = Self::create_slider_section(&mut widget_manager, &mut layouts);
 
         // Progress bar section
         let (progress_section, progress_bar_id, animated_progress_id) =
-            Self::create_progress_section(&mut widget_manager);
+            Self::create_progress_section(&mut widget_manager, &mut layouts);
 
         // Build hierarchy
         let root = widget_manager.get_typed_mut::<Container>(root_id).unwrap();
@@ -56,17 +64,23 @@ impl App {
             progress_bar_id,
             animated_progress_id,
             last_update: Instant::now(),
+            layouts,
         }
     }
 
-    fn create_checkbox_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_checkbox_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 10,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Section label
         let label_id = widget_manager.add_widget(Box::new(
@@ -106,14 +120,19 @@ impl App {
         container_id
     }
 
-    fn create_slider_section(widget_manager: &mut WidgetManager) -> WidgetId {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+    fn create_slider_section(
+        widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
+    ) -> WidgetId {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 10,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Section label
         let label_id = widget_manager.add_widget(Box::new(
@@ -137,13 +156,16 @@ impl App {
         };
 
         // Vertical slider container
-        let v_container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let v_container_id =
+            widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            v_container_id,
+            LayoutConfig {
                 mode: LayoutMode::Horizontal,
                 spacing: 20,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         let brightness_label_id =
             widget_manager.add_widget(Box::new(Label::new(WidgetId::default(), "Brightness:")));
@@ -174,14 +196,17 @@ impl App {
 
     fn create_progress_section(
         widget_manager: &mut WidgetManager,
+        layouts: &mut HashMap<WidgetId, LayoutConfig>,
     ) -> (WidgetId, WidgetId, WidgetId) {
-        let container_id = widget_manager.add_widget(Box::new(
-            Container::new(WidgetId::default()).with_layout(LayoutConfig {
+        let container_id = widget_manager.add_widget(Box::new(Container::new(WidgetId::default())));
+        layouts.insert(
+            container_id,
+            LayoutConfig {
                 mode: LayoutMode::Vertical,
                 spacing: 10,
                 ..Default::default()
-            }),
-        ));
+            },
+        );
 
         // Section label
         let label_id = widget_manager.add_widget(Box::new(
@@ -259,11 +284,11 @@ impl App {
 
     fn layout_children(&mut self, parent_id: WidgetId, theme: &Theme) {
         if let Some(container) = self.widget_manager.get_typed::<Container>(parent_id) {
-            let layout_info = container.get_layout_info();
-            let children = container.children().to_vec();
-            let bounds = container.bounds();
-
-            self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            if let Some(layout_info) = self.layouts.get(&parent_id).cloned() {
+                let children = container.children().to_vec();
+                let bounds = container.bounds();
+                self.perform_container_layout(parent_id, &layout_info, &children, bounds, theme);
+            }
         }
 
         let children: Vec<WidgetId> = if let Some(parent) = self.widget_manager.get(parent_id) {

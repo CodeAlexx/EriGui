@@ -29,8 +29,8 @@ use erigui_nodes::{NodeRegistry, NodeSchema};
 use erigui_widgets::node_graph::{Edge, Field, FieldValue, Graph, Node, Port};
 use erigui_workflow::{PortRef, Position, Workflow, WorkflowEdge, WorkflowNode};
 
-const DEFAULT_NODE_WIDTH: i32 = 220;
-const DEFAULT_NODE_HEIGHT: i32 = 160;
+const DEFAULT_NODE_WIDTH: i32 = 320;
+const DEFAULT_NODE_HEIGHT: i32 = 360;
 
 /// Convert the in-memory editor graph to the on-disk workflow envelope.
 ///
@@ -157,6 +157,7 @@ pub fn workflow_to_graph(wf: &Workflow, registry: &NodeRegistry) -> Graph {
                     .unwrap_or_else(|| fs.default.clone());
                 Field {
                     id: i,
+                    name: fs.name.clone(),
                     label: fs.label.clone(),
                     kind: fs.kind.clone(),
                     value,
@@ -285,6 +286,7 @@ mod tests {
             .enumerate()
             .map(|(i, fs)| Field {
                 id: i,
+                name: fs.name.clone(),
                 label: fs.label.clone(),
                 kind: fs.kind.clone(),
                 value: match &fs.kind {
@@ -333,6 +335,7 @@ mod tests {
             .enumerate()
             .map(|(i, fs)| Field {
                 id: i,
+                name: fs.name.clone(),
                 label: fs.label.clone(),
                 kind: fs.kind.clone(),
                 value: fs.default.clone(),

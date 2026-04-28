@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type_id": "core/load_checkpoint",
+      "position": { "x": 100.0, "y": 100.0 },
+      "fields": {
+        "path": "/tmp/klein_smoke_sidecar.json"
+      }
+    },
+    {
+      "id": 2,
+      "type_id": "core/empty_latent",
+      "position": { "x": 100.0, "y": 600.0 },
+      "fields": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
+    },
+    {
+      "id": 3,
+      "type_id": "core/encode_prompt",
+      "position": { "x": 700.0, "y": 100.0 },
+      "fields": {
+        "text": "a portrait of a young woman with long dark hair, soft natural lighting, photograph",
+        "negative": false
+      }
+    },
+    {
+      "id": 4,
+      "type_id": "core/encode_prompt",
+      "position": { "x": 700.0, "y": 700.0 },
+      "fields": {
+        "text": "blurry, deformed, low quality",
+        "negative": true
+      }
+    },
+    {
+      "id": 5,
+      "type_id": "core/k_sampler",
+      "position": { "x": 1400.0, "y": 400.0 },
+      "fields": {
+        "seed": 42,
+        "steps": 20,
+        "cfg": 4.0,
+        "shift": 3.0
+      }
+    },
+    {
+      "id": 6,
+      "type_id": "core/vae_decode",
+      "position": { "x": 2100.0, "y": 400.0 },
+      "fields": {}
+    },
+    {
+      "id": 7,
+      "type_id": "core/save_image",
+      "position": { "x": 2700.0, "y": 400.0 },
+      "fields": {
+        "filename_prefix": "klein_basic"
+      }
+    }
+  ],
+  "edges": [
+    { "from": { "node": 1, "port": "model" }, "to": { "node": 5, "port": "model" } },
+    { "from": { "node": 1, "port": "clip" },  "to": { "node": 3, "port": "clip" } },
+    { "from": { "node": 1, "port": "clip" },  "to": { "node": 4, "port": "clip" } },
+    { "from": { "node": 1, "port": "vae" },   "to": { "node": 6, "port": "vae" } },
+    { "from": { "node": 2, "port": "latent" },"to": { "node": 5, "port": "latent" } },
+    { "from": { "node": 3, "port": "conditioning" }, "to": { "node": 5, "port": "positive" } },
+    { "from": { "node": 4, "port": "conditioning" }, "to": { "node": 5, "port": "negative" } },
+    { "from": { "node": 5, "port": "latent" },"to": { "node": 6, "port": "latent" } },
+    { "from": { "node": 6, "port": "image" }, "to": { "node": 7, "port": "image" } }
+  ]
+}

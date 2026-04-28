@@ -222,6 +222,20 @@ impl NodeGraph {
         // Inserting drops the old value, which runs `Drop for NodeImagePreview`
         // and frees the prior GL texture (if any).
         self.node_image_textures.insert(node_id, preview);
+        // Auto-grow the node so the preview has room. Default node sizes
+        // are tuned for nodes WITHOUT a preview; once an image lands, the
+        // node card needs to expand. Min height = 320 (room for title +
+        // ports + 256-square preview); only grow, never shrink.
+        if let Some(node) = self.graph.nodes.iter_mut().find(|n| n.id == node_id) {
+            const PREVIEW_MIN_HEIGHT: i32 = 320;
+            const PREVIEW_MIN_WIDTH: i32 = 280;
+            if node.size.height < PREVIEW_MIN_HEIGHT {
+                node.size.height = PREVIEW_MIN_HEIGHT;
+            }
+            if node.size.width < PREVIEW_MIN_WIDTH {
+                node.size.width = PREVIEW_MIN_WIDTH;
+            }
+        }
         Ok(())
     }
 

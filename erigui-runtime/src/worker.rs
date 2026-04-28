@@ -110,6 +110,20 @@ fn run_graph(
     // Build edge map: for each (to_node, to_port_name) -> (from_node, from_port_name).
     let port_map = build_port_map(graph);
 
+    // Pre-compute consumer counts: for each (producer_node, port_name) how
+    // many downstream nodes will consume that output. We decrement as we
+    // run; when a count hits zero we drop the value from outputs_by_node
+    // AND from cache (for heavy GPU handles only — Model/Clip/Vae/Lora),
+    // then trim the CUDA mempool. This is the equivalent of klein_lora_infer's
+    // explicit `drop(encoder); trim_cuda_mempool(0);` between stages.
+    let mut consumers_remaining: HashMap<(NodeId, String), usize> = HashMap::new();
+    for (to_key, (from_node, from_port)) in &port_map {
+        let _ = to_key; // we only care about producer side
+        *consumers_remaining
+            .entry((*from_node, from_port.clone()))
+            .or_insert(0) += 1;
+    }
+
     for node_id in order {
         if cancel_flag.load(Ordering::SeqCst) {
             let _ = progress_tx.send(ProgressEvent::NodeError {
@@ -151,7 +165,12 @@ fn run_graph(
 
         // Collect inputs: for each declared input port on the schema, look
         // up the upstream output via port_map → outputs_by_node.
+        // ALSO: track which (producer, port) pairs this node will consume,
+        // so we can decrement consumers_remaining after this node runs and
+        // free upstream outputs that won't be needed again.
         let mut inputs: HashMap<String, NodeValue> = HashMap::with_capacity(schema.inputs.len());
+        let mut consumed_this_step: Vec<(NodeId, String)> =
+            Vec::with_capacity(schema.inputs.len());
         for port in &schema.inputs {
             let key = (node_id, port.name.clone());
             if let Some((from_node, from_port)) = port_map.get(&key) {
@@ -160,6 +179,7 @@ fn run_graph(
                         inputs.insert(port.name.clone(), v.clone());
                     }
                 }
+                consumed_this_step.push((*from_node, from_port.clone()));
             }
             // Missing inputs are fine here; the node will return
             // NodeError::MissingInput if it actually needs the value.
@@ -215,6 +235,52 @@ fn run_graph(
                 // inputs and likely fail with MissingInput. That's the
                 // wave-3 spec's behavior.
             }
+        }
+
+        // After this node ran (or hit cache), decrement consumer counts for
+        // every (producer, port) we just consumed. Drop any that hit zero.
+        // For heavy GPU handles (Model/Clip/Vae/Lora) we also invalidate the
+        // cache entry and trim the CUDA mempool — these handles are large
+        // (multi-GB) and would otherwise keep the weights resident in VRAM
+        // even when no remaining downstream node needs them. Mirrors the
+        // klein_lora_infer explicit `drop(encoder); trim_cuda_mempool(0);`
+        // pattern between stages.
+        let mut freed_heavy = false;
+        for (producer, port) in consumed_this_step {
+            let key = (producer, port.clone());
+            if let Some(c) = consumers_remaining.get_mut(&key) {
+                if *c > 0 {
+                    *c -= 1;
+                }
+                if *c == 0 {
+                    let mut is_heavy = false;
+                    if let Some(outs) = outputs_by_node.get_mut(&producer) {
+                        if let Some(v) = outs.remove(&port) {
+                            is_heavy = matches!(
+                                v,
+                                NodeValue::Model { .. }
+                                    | NodeValue::Clip { .. }
+                                    | NodeValue::Vae { .. }
+                                    | NodeValue::Lora { .. }
+                            );
+                            // v dropped at end of scope
+                        }
+                        if outs.is_empty() {
+                            outputs_by_node.remove(&producer);
+                        }
+                    }
+                    if is_heavy {
+                        // Cache also holds a clone — must invalidate so the
+                        // Arc refcount drops and the underlying GPU handle
+                        // actually frees.
+                        cache.invalidate(producer);
+                        freed_heavy = true;
+                    }
+                }
+            }
+        }
+        if freed_heavy {
+            flame_core::trim_cuda_mempool(0);
         }
     }
 }
@@ -288,7 +354,11 @@ fn build_port_map(
 fn build_field_map(fields: &[Field]) -> HashMap<String, FieldValue> {
     let mut m = HashMap::with_capacity(fields.len());
     for f in fields {
-        m.insert(f.label.clone(), f.value.clone());
+        // Prefer `name` (programmatic key, matches FieldSpec.name in
+        // erigui-nodes). Fall back to `label` for back-compat with
+        // workflows saved before `Field.name` existed.
+        let key = if f.name.is_empty() { &f.label } else { &f.name };
+        m.insert(key.clone(), f.value.clone());
     }
     m
 }

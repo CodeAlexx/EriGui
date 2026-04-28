@@ -87,6 +87,14 @@ pub struct Graph {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Field {
     pub id: usize,
+    /// Programmatic key (matches FieldSpec.name in erigui-nodes). Used
+    /// by the executor when building the per-node fields HashMap. May
+    /// differ from `label` (e.g. name="path", label="Path"). Defaults
+    /// to empty string for back-compat with workflows saved before
+    /// this field was added; in that case the executor falls back to
+    /// using `label` as the key.
+    #[serde(default)]
+    pub name: String,
     pub label: String,
     pub kind: FieldKind,
     pub value: FieldValue,
@@ -679,12 +687,16 @@ impl NodeGraph {
             if let (Some(start), Some(end)) = (from, to) {
                 let start = self.to_screen_point(*start);
                 let end = self.to_screen_point(*end);
-                let mut thickness = self.scale(2).clamp(1, 6);
+                let mut thickness = self.scale(3).clamp(2, 8);
+                // Hardcoded amber/gold for edges so they stand out against
+                // the dark canvas instead of getting lost in theme blue.
+                const EDGE_COLOR: Color = Color::rgb(245, 158, 11);
+                const EDGE_HOVER: Color = Color::rgb(252, 211, 77);
                 let color = if Some(idx) == self.hovered_edge {
-                    thickness = (thickness + 1).clamp(thickness, 8);
-                    theme.colors.primary_hover
+                    thickness = (thickness + 1).clamp(thickness, 10);
+                    EDGE_HOVER
                 } else {
-                    theme.colors.primary
+                    EDGE_COLOR
                 };
                 self.draw_bezier(ctx, start, end, color, thickness);
                 self.draw_arrowhead(ctx, start, end, color, thickness);
@@ -713,8 +725,22 @@ impl NodeGraph {
                 theme.colors.surface
             });
             ctx.fill_rounded_rect(rect, corner);
+            // Active node (currently executing per ProgressEvent::NodeStep)
+            // gets a thicker accent border so the user can see which node
+            // the executor is on. We use the presence of a non-error
+            // progress entry as the "active" signal.
+            let is_active = self
+                .node_progress
+                .get(&node.id)
+                .map(|p| p.error.is_none())
+                .unwrap_or(false);
+            // Hardcoded vivid magenta for active border (NOT theme.primary
+            // because that's blue and the user wanted clearly different).
+            const ACTIVE_BORDER: Color = Color::rgb(236, 72, 153);
             ctx.set_color(if is_drop_target {
                 theme.colors.success
+            } else if is_active {
+                ACTIVE_BORDER
             } else if is_selected {
                 theme.colors.border_focus
             } else {
@@ -1020,8 +1046,9 @@ impl NodeGraph {
                 );
             }
 
-            // resize handle (bottom-right)
-            let handle_size = self.scale(12).clamp(10, 16);
+            // resize handle (bottom-right) — bumped from 12/16 to 24/32
+            // because 16px on a 4K screen is impossible to grab.
+            let handle_size = self.scale(24).clamp(20, 32);
             let handle_rect = Rect::new(
                 rect.right() - handle_size,
                 rect.bottom() - handle_size,

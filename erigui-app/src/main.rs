@@ -327,11 +327,7 @@ impl App {
             });
         self.file_dialog = Some(dialog);
         self.dialog_purpose = Some(DialogPurpose::Save);
-        let viewport = self.canvas_rect.size; // not the true viewport, but
-                                              // layout() relays out from
-                                              // the cached toolbar+canvas+
-                                              // status rects, which is fine
-                                              // here.
+        let viewport = self.canvas_rect.size;
         self.layout_dialog_only(viewport);
         self.set_status("Save: choose a workflow JSON path.");
     }
@@ -439,21 +435,66 @@ impl App {
                 }
                 ProgressEvent::NodeDone { node_id, outputs } => {
                     self.graph.clear_node_progress(node_id as usize);
-                    for (_name, value) in outputs {
+                    for (port_name, value) in outputs {
                         if let erigui_nodes::NodeValue::Image(t) = value {
-                            match tensor_to_rgb_bytes(&t) {
-                                Ok((bytes, w, h)) => {
+                            // Convert once.
+                            let bytes_wh = match tensor_to_rgb_bytes(&t) {
+                                Ok(b) => Some(b),
+                                Err(e) => {
+                                    log::warn!(
+                                        "output image convert failed for node {node_id}: {e}"
+                                    );
+                                    None
+                                }
+                            };
+                            if let Some((bytes, w, h)) = bytes_wh {
+                                // Set on the producer.
+                                if let Err(e) =
+                                    self.graph.set_node_image(node_id as usize, bytes.clone(), w, h)
+                                {
+                                    log::warn!(
+                                        "output image upload failed for node {node_id}: {e}"
+                                    );
+                                }
+                                // Also set on every downstream node that
+                                // consumes this Image output. SaveImage is
+                                // the typical case — user expects the
+                                // generated picture to show on the "save"
+                                // node, not the upstream VAE decode.
+                                // Find downstream consumers of this output port
+                                // by matching on the producer node + port index
+                                // (port label == NodeValueType name in our schemas).
+                                let producer_outputs: Vec<String> = self
+                                    .graph
+                                    .graph
+                                    .nodes
+                                    .iter()
+                                    .find(|n| n.id == node_id as usize)
+                                    .map(|n| n.outputs.iter().map(|p| p.label.clone()).collect())
+                                    .unwrap_or_default();
+                                let downstream: Vec<usize> = self
+                                    .graph
+                                    .graph
+                                    .edges
+                                    .iter()
+                                    .filter(|e| {
+                                        e.from_node == node_id as usize
+                                            && producer_outputs
+                                                .get(e.from_port)
+                                                .map(|s| s.as_str() == port_name.as_str())
+                                                .unwrap_or(false)
+                                    })
+                                    .map(|e| e.to_node)
+                                    .collect();
+                                for to_id in downstream {
                                     if let Err(e) =
-                                        self.graph.set_node_image(node_id as usize, bytes, w, h)
+                                        self.graph.set_node_image(to_id, bytes.clone(), w, h)
                                     {
                                         log::warn!(
-                                            "output image upload failed for node {node_id}: {e}"
+                                            "downstream image upload failed for node {to_id}: {e}"
                                         );
                                     }
                                 }
-                                Err(e) => log::warn!(
-                                    "output image convert failed for node {node_id}: {e}"
-                                ),
                             }
                         }
                     }
@@ -524,10 +565,61 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let event_loop = EventLoop::new()?;
-    let mut renderer = Renderer::new(&event_loop, 1400, 900, "EriGui — Node Graph App")?;
+    // Detect primary monitor and use 85% of its size in logical pixels.
+    // Falls back to 2400x1600 if no monitor info (was 1400x900 — too small
+    // on 4K screens when primary_monitor returned None).
+    let (win_w, win_h) = match event_loop.primary_monitor() {
+        Some(m) => {
+            let scale = m.scale_factor().max(1.0);
+            let phys = m.size();
+            let w = ((phys.width as f64) * 0.85 / scale) as i32;
+            let h = ((phys.height as f64) * 0.85 / scale) as i32;
+            log::info!(
+                "monitor: {}x{} phys, scale {:.2} -> window {}x{} logical",
+                phys.width,
+                phys.height,
+                scale,
+                w,
+                h
+            );
+            (w.max(1024), h.max(720))
+        }
+        None => {
+            log::warn!("no primary monitor detected; falling back to 2400x1600 logical");
+            (2400, 1600)
+        }
+    };
+    let mut renderer = Renderer::new(&event_loop, win_w, win_h, "EriGui — Node Graph App")?;
     let theme = Theme::alex_jammin();
     let viewport = renderer.viewport_size();
     let mut app = App::new(theme.clone(), viewport);
+
+    // Auto-load default workflow if it exists. Bypasses the file dialog
+    // for the common "open the app, get the Klein graph" path.
+    let default_workflow =
+        std::path::PathBuf::from("/home/alex/EriGui/rust-gui/workflows/klein_basic.json");
+    if default_workflow.exists() {
+        match Workflow::load_from_file(&default_workflow) {
+            Ok(wf) => {
+                let report = wf.resolve(&app.registry);
+                if !report.unresolved.is_empty() {
+                    log::warn!(
+                        "default workflow has {} unresolved nodes (will be dropped): {:?}",
+                        report.unresolved.len(),
+                        report.unresolved
+                    );
+                }
+                let new_graph = workflow_to_graph(&wf, &app.registry);
+                app.graph.graph = new_graph;
+                app.set_status(format!("Loaded {}", default_workflow.display()));
+            }
+            Err(e) => {
+                log::error!("Failed to load default workflow: {e}");
+                app.set_status(format!("Load failed: {e}"));
+            }
+        }
+    }
+
     let mut translator = EventTranslator::new(viewport);
 
     event_loop.run(move |event, elwt| {
@@ -614,4 +706,70 @@ fn tensor_to_rgb_bytes(image: &flame_core::Tensor) -> anyhow::Result<(Vec<u8>, u
         }
     }
     Ok((out, w as u32, h as u32))
+}
+
+#[cfg(test)]
+mod klein_basic_test {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn klein_basic_workflow_loads_with_all_fields() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("workflows")
+            .join("klein_basic.json");
+
+        let wf = Workflow::load_from_file(&path)
+            .unwrap_or_else(|e| panic!("klein_basic.json failed to parse: {e}"));
+        assert_eq!(wf.version, 1);
+        assert_eq!(wf.nodes.len(), 7);
+        assert_eq!(wf.edges.len(), 9);
+
+        let registry = Arc::new(NodeRegistry::with_builtins());
+        let report = wf.resolve(&registry);
+        assert!(
+            report.unresolved.is_empty(),
+            "unresolved type_ids: {:?}",
+            report.unresolved
+        );
+
+        let graph = workflow_to_graph(&wf, &registry);
+        assert_eq!(graph.nodes.len(), 7, "graph dropped nodes");
+        assert_eq!(graph.edges.len(), 9, "graph dropped edges");
+
+        let by_type = |t: &str| -> Vec<&erigui_widgets::node_graph::Node> {
+            graph
+                .nodes
+                .iter()
+                .filter(|n| n.component_type.as_deref() == Some(t))
+                .collect()
+        };
+
+        let lc = by_type("core/load_checkpoint");
+        assert_eq!(lc.len(), 1);
+        assert_eq!(lc[0].fields.len(), 1, "load_checkpoint should have 1 field (path)");
+
+        let el = by_type("core/empty_latent");
+        assert_eq!(el.len(), 1);
+        assert_eq!(el[0].fields.len(), 3, "empty_latent should have 3 fields");
+
+        let ep = by_type("core/encode_prompt");
+        assert_eq!(ep.len(), 2);
+        for n in &ep {
+            assert_eq!(n.fields.len(), 2, "encode_prompt should have 2 fields");
+        }
+
+        let ks = by_type("core/k_sampler");
+        assert_eq!(ks.len(), 1);
+        assert_eq!(ks[0].fields.len(), 4, "k_sampler should have 4 fields");
+
+        let vd = by_type("core/vae_decode");
+        assert_eq!(vd.len(), 1);
+        assert_eq!(vd[0].fields.len(), 0);
+
+        let si = by_type("core/save_image");
+        assert_eq!(si.len(), 1);
+        assert_eq!(si[0].fields.len(), 1, "save_image should have 1 field");
+    }
 }

@@ -188,6 +188,7 @@ fn node_from_schema(type_id: &str, schema: &AddMenuSchema, position: Point) -> N
         .enumerate()
         .map(|(i, f)| Field {
             id: i,
+            name: f.name.clone(),
             label: f.label.clone(),
             kind: f.kind.clone(),
             value: f.default.clone(),

@@ -300,6 +300,7 @@ impl NodeRegistry {
         r.register(Box::new(builtin::load_checkpoint::LoadCheckpoint));
         r.register(Box::new(builtin::load_lora::LoadLora));
         r.register(Box::new(builtin::encode_prompt::EncodePrompt));
+        r.register(Box::new(builtin::empty_latent::EmptyLatent));
         r.register(Box::new(builtin::k_sampler::KSampler));
         r.register(Box::new(builtin::vae_decode::VaeDecode));
         r.register(Box::new(builtin::save_image::SaveImage));

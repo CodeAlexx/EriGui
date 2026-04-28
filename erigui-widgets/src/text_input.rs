@@ -1,4 +1,5 @@
 use crate::clipboard;
+use crate::tooltip::TooltipState;
 use erigui_core::{
     DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, Modifiers, MouseButton,
     Point, Rect, Size, TextInputEvent, Theme, Widget, WidgetId, WidgetState,
@@ -25,6 +26,7 @@ pub struct TextInput {
     last_layout_width: i32,
     on_change: Option<ChangeCallback>,
     on_submit: Option<SubmitCallback>,
+    tooltip: Option<TooltipState>,
 }
 
 impl TextInput {
@@ -41,7 +43,26 @@ impl TextInput {
             last_layout_width: 0,
             on_change: None,
             on_submit: None,
+            tooltip: None,
         }
+    }
+
+    /// Attach a hover tooltip. Mirrors Button's `with_tooltip`.
+    pub fn with_tooltip(mut self, text: impl Into<String>) -> Self {
+        self.tooltip = Some(TooltipState::new(text));
+        self
+    }
+
+    /// Pre-configured `TooltipState` variant for callers that want
+    /// custom delay or position.
+    pub fn with_tooltip_state(mut self, tooltip: TooltipState) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Read access for tests and introspection.
+    pub fn tooltip(&self) -> Option<&TooltipState> {
+        self.tooltip.as_ref()
     }
 
     /// Bug ti18: cap the character count of inserted/pasted text.
@@ -481,9 +502,38 @@ impl Widget for TextInput {
         }
 
         context.pop_clip_rect();
+
+        // Tooltip overlays the text input bounds. Drawn after the
+        // clip pop so it isn't clipped to the inner content area.
+        if let Some(tooltip) = &self.tooltip {
+            tooltip.draw(context, theme, self.state.bounds);
+        }
     }
 
     fn handle_event(&mut self, event: &Event, theme: &Theme) -> EventResult {
+        // Hidden / disabled text input must not show a stale tooltip.
+        // TextInput doesn't have an early-return guard like other
+        // widgets — the per-branch checks gate text mutation only —
+        // so the tooltip-suppression logic lives here.
+        if !self.state.visible || !self.state.enabled {
+            if let Some(tooltip) = &mut self.tooltip {
+                tooltip.hide();
+            }
+            return EventResult::Ignored;
+        }
+
+        // Drive tooltip hover/visibility BEFORE the existing match
+        // runs. TextInput's MouseMove path is currently a no-op
+        // (cursor positioning happens on click, drag-select isn't
+        // wired here — only on press), so reading the same event
+        // for tooltip purposes doesn't interfere with anything the
+        // widget already does. A press elsewhere in the match
+        // hides via `update_on_event`'s press handler before the
+        // press itself routes to focus / cursor logic.
+        if let Some(tooltip) = &mut self.tooltip {
+            tooltip.update_on_event(event, self.state.bounds);
+        }
+
         match event {
             Event::MouseButton(ev) => {
                 if ev.button == MouseButton::Left && ev.pressed {

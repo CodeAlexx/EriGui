@@ -1763,6 +1763,38 @@ fn slider_tooltip_shows_after_delay() {
 }
 
 #[test]
+fn text_input_tooltip_shows_after_delay() {
+    let theme = default_theme();
+    let mut ti = TextInput::new(test_id())
+        .with_tooltip_state(TooltipState::new("Username").with_delay_ms(20));
+    ti.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    ti.handle_event(&move_event(Point::new(10, 15)), &theme);
+    assert!(!ti.tooltip().unwrap().is_visible());
+
+    std::thread::sleep(Duration::from_millis(30));
+    ti.handle_event(&move_event(Point::new(11, 15)), &theme);
+    assert!(ti.tooltip().unwrap().is_visible());
+}
+
+#[test]
+fn text_input_tooltip_hides_on_mouse_press() {
+    let theme = default_theme();
+    let mut ti = TextInput::new(test_id())
+        .with_tooltip_state(TooltipState::new("Username").with_delay_ms(0));
+    ti.layout(Rect::new(0, 0, 200, 30), &theme);
+
+    ti.handle_event(&move_event(Point::new(10, 15)), &theme);
+    assert!(ti.tooltip().unwrap().is_visible());
+
+    ti.handle_event(&left_press_event(Point::new(10, 15)), &theme);
+    assert!(
+        !ti.tooltip().unwrap().is_visible(),
+        "press must dismiss the tooltip even though it also focuses the input"
+    );
+}
+
+#[test]
 fn slider_tooltip_hides_on_mouse_press() {
     let theme = default_theme();
     let mut s = Slider::new(test_id(), 0.0, 100.0, 50.0)

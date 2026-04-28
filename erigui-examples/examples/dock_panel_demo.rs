@@ -21,30 +21,16 @@ impl DockPanelDemo {
                 println!("Dock layout changed");
             });
 
-        // Add some demo panels
+        // Add some demo panels.
+        //
+        // Order matters: DockPanel does not support adding `Center`
+        // panels to a Split-root (it now panics with a clear message).
+        // So we add the Center editors FIRST -- they make the root a
+        // Tabs node -- and then nest Left / Right / Bottom panels
+        // around them, which create Splits with the editor-Tabs as
+        // one half.
 
-        // Properties panel
-        let properties_content = Box::new(Container::new(WidgetId::default()));
-        let properties_panel = DockablePanel::new("properties", "Properties", properties_content)
-            .with_icon("settings")
-            .with_can_close(true);
-        dock_panel.add_panel(properties_panel, DockPosition::Right);
-
-        // Explorer panel
-        let explorer_content = Box::new(Container::new(WidgetId::default()));
-        let explorer_panel = DockablePanel::new("explorer", "Explorer", explorer_content)
-            .with_icon("folder")
-            .with_can_close(true);
-        dock_panel.add_panel(explorer_panel, DockPosition::Left);
-
-        // Output panel
-        let output_content = Box::new(Container::new(WidgetId::default()));
-        let output_panel = DockablePanel::new("output", "Output", output_content)
-            .with_icon("terminal")
-            .with_can_close(true);
-        dock_panel.add_panel(output_panel, DockPosition::Bottom);
-
-        // Main editor panels
+        // Main editor panels (first, to make root a Tabs node)
         let editor1_content = Box::new(Label::new(WidgetId::default(), "Editor 1 Content\n\nThis is the main editor area.\nYou can drag panels around to rearrange the layout."));
         let editor1_panel = DockablePanel::new("editor1", "main.rs", editor1_content)
             .with_icon("file")
@@ -59,6 +45,27 @@ impl DockPanelDemo {
             .with_icon("file")
             .with_can_close(true);
         dock_panel.add_panel(editor2_panel, DockPosition::Center);
+
+        // Properties panel (Right of editors)
+        let properties_content = Box::new(Container::new(WidgetId::default()));
+        let properties_panel = DockablePanel::new("properties", "Properties", properties_content)
+            .with_icon("settings")
+            .with_can_close(true);
+        dock_panel.add_panel(properties_panel, DockPosition::Right);
+
+        // Explorer panel (Left of the existing tree)
+        let explorer_content = Box::new(Container::new(WidgetId::default()));
+        let explorer_panel = DockablePanel::new("explorer", "Explorer", explorer_content)
+            .with_icon("folder")
+            .with_can_close(true);
+        dock_panel.add_panel(explorer_panel, DockPosition::Left);
+
+        // Output panel (Bottom)
+        let output_content = Box::new(Container::new(WidgetId::default()));
+        let output_panel = DockablePanel::new("output", "Output", output_content)
+            .with_icon("terminal")
+            .with_can_close(true);
+        dock_panel.add_panel(output_panel, DockPosition::Bottom);
 
         // Floating panel
         let floating_content = Box::new(Label::new(

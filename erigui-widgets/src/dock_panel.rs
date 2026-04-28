@@ -213,9 +213,25 @@ impl DockPanel {
                 // Add to existing tree based on position
                 match position {
                     DockPosition::Center => {
-                        // Add as tab to root
-                        if let DockNode::Tabs { panels, .. } = &mut self.root_node {
-                            panels.push(panel_id);
+                        // Add as tab to root. Center is only valid when
+                        // the root is a Tabs node; on a Split root this
+                        // used to silently no-op (and leak the panel
+                        // entry recorded in `self.panels`). Panic with a
+                        // clear message instead -- hosts must choose a
+                        // specific position or rebuild the layout.
+                        match &mut self.root_node {
+                            DockNode::Tabs { panels, .. } => {
+                                panels.push(panel_id);
+                            }
+                            DockNode::Split { .. } => {
+                                panic!(
+                                    "Cannot add Center panel to a Split root - choose a specific position (Left/Right/Top/Bottom/Floating) or detach existing layout first"
+                                );
+                            }
+                            DockNode::Empty => {
+                                // Unreachable: outer match guarded on != Empty.
+                                unreachable!("DockNode::Empty handled in outer arm");
+                            }
                         }
                     }
                     DockPosition::Left => {

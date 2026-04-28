@@ -810,6 +810,12 @@ fn dock_panel_add_in_each_position_does_not_panic() {
     // Exercise all five docked positions plus Floating. Each branch in
     // add_to_dock_tree mutates root_node in a different way; verify they
     // all complete and a follow-up layout works.
+    //
+    // Order matters: Center as the first add lands on an Empty root and
+    // becomes a Tabs node; subsequent Right/Left/Top/Bottom wrap it in
+    // a Split. Adding Center to a Split-root panics by design (see
+    // `dock_panel_center_after_split_panics`), so the test does NOT
+    // attempt a second Center after the layout has split.
     let theme = default_theme();
     let mut dp = DockPanel::new(test_id());
     dp.layout(Rect::new(0, 0, 1024, 768), &theme);
@@ -828,6 +834,38 @@ fn dock_panel_add_in_each_position_does_not_panic() {
     // Layout again with all six panels in the tree -- the layout pass
     // recurses through every Split branch.
     dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+}
+
+#[test]
+#[should_panic(expected = "Cannot add Center panel to a Split root")]
+fn dock_panel_center_after_split_panics() {
+    // Adding any non-Floating panel to a non-empty root that's a Tabs
+    // node creates a Split (Left/Right/Top/Bottom branches replace the
+    // root with `Split { ..., second: old_root }`). Once the root is a
+    // Split, attempting to add a Center panel used to silently no-op
+    // (the panel got recorded in `self.panels` but never made it into
+    // the dock tree, leaking it). Now it panics with a clear message
+    // forcing the host to choose Left/Right/Top/Bottom/Floating or
+    // rebuild.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+
+    // First add: Center on Empty -> root becomes Tabs.
+    dp.add_panel(
+        DockablePanel::new("c", "C", boxed_label("c")),
+        DockPosition::Center,
+    );
+    // Second add: Right on Tabs -> root becomes Split.
+    dp.add_panel(
+        DockablePanel::new("r", "R", boxed_label("r")),
+        DockPosition::Right,
+    );
+    // Third add: Center on Split -> panic.
+    dp.add_panel(
+        DockablePanel::new("c2", "C2", boxed_label("c2")),
+        DockPosition::Center,
+    );
 }
 
 #[test]

@@ -2020,21 +2020,33 @@ fn dtp_set_focused_false_clears_edit_state() {
 #[test]
 fn dtp_set_focused_propagates_to_button() {
     // set_focused(true/false) must reach BOTH children (input + calendar
-    // button), not just the input. We don't have direct accessors on the
-    // children from outside, but at minimum the parent's own focus state
-    // round-trips, and toggling focused=false clears the edit state — both
-    // are observable side-effects of the propagation path.
+    // button), not just the input. The parent's own is_focused() alone is
+    // insufficient evidence — the propagation to the calendar_button at
+    // date_time_picker.rs:1122 (`self.calendar_button.set_focused(focused)`)
+    // could regress without any observable effect on the parent. Assert on
+    // a dedicated child-state accessor so the test fails if that line is
+    // ever deleted.
     let dt = NaiveDate::from_ymd_opt(2024, 1, 1)
         .unwrap()
         .and_hms_opt(10, 0, 0)
         .unwrap();
     let mut p = dtp_with_value(dt);
     p.layout(Rect::new(0, 0, 240, 30), &theme());
+
     p.set_focused(true);
     assert!(p.is_focused(), "set_focused(true) sticks on the parent");
+    assert!(
+        p.calendar_button_focused_for_test(),
+        "set_focused(true) must propagate to the inner calendar button"
+    );
+
     p.set_editing_hour_for_test(true);
     p.set_focused(false);
     assert!(!p.is_focused());
+    assert!(
+        !p.calendar_button_focused_for_test(),
+        "set_focused(false) must propagate to the inner calendar button"
+    );
     // Edit state cleared — proves set_focused(false) ran the cleanup branch.
     assert!(!p.editing_hour_for_test());
 }

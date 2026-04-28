@@ -212,6 +212,16 @@ impl DateTimePicker {
         self.show_calendar = show;
     }
 
+    /// Test/debug accessor: whether the inner calendar trigger button is
+    /// focused. Lets tests verify that `set_focused` propagation actually
+    /// reaches the child button — the parent's own focus state alone is
+    /// insufficient evidence (the propagation could regress without any
+    /// observable effect on the parent).
+    #[doc(hidden)]
+    pub fn calendar_button_focused_for_test(&self) -> bool {
+        self.calendar_button.is_focused()
+    }
+
     pub fn set_value(&mut self, datetime: NaiveDateTime) {
         self.selected_datetime = datetime;
         self.viewing_year = datetime.year();

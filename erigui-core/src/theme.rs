@@ -300,3 +300,141 @@ impl Default for ThemeManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----- Built-in theme construction -----
+
+    #[test]
+    fn light_theme_name() {
+        let t = Theme::light();
+        assert_eq!(t.name, "Light");
+    }
+
+    #[test]
+    fn dark_theme_name() {
+        let t = Theme::dark();
+        assert_eq!(t.name, "Dark");
+    }
+
+    #[test]
+    fn alex_jammin_theme_name() {
+        let t = Theme::alex_jammin();
+        assert_eq!(t.name, "alexJammin");
+    }
+
+    #[test]
+    fn from_system_does_not_panic() {
+        let _ = Theme::from_system();
+    }
+
+    #[test]
+    fn light_theme_background_is_white() {
+        let t = Theme::light();
+        assert_eq!(t.colors.background, Color::from_hex(0xFFFFFF));
+    }
+
+    #[test]
+    fn dark_theme_background_is_dark() {
+        let t = Theme::dark();
+        assert_eq!(t.colors.background, Color::from_hex(0x121212));
+    }
+
+    #[test]
+    fn dark_theme_inherits_typography_from_light() {
+        // Dark::dark() uses ..Self::light() so non-color fields should match.
+        let l = Theme::light();
+        let d = Theme::dark();
+        assert_eq!(d.typography.font_family, l.typography.font_family);
+        assert_eq!(d.typography.font_size_base, l.typography.font_size_base);
+        assert_eq!(d.spacing.base, l.spacing.base);
+        assert_eq!(d.borders.radius, l.borders.radius);
+    }
+
+    #[test]
+    fn light_theme_typography_is_jetbrains_mono() {
+        let t = Theme::light();
+        assert_eq!(t.typography.font_family, "JetBrains Mono");
+    }
+
+    #[test]
+    fn alex_jammin_typography_is_space_grotesk() {
+        let t = Theme::alex_jammin();
+        assert_eq!(t.typography.font_family, "Space Grotesk");
+    }
+
+    #[test]
+    fn light_theme_borders_are_sensible() {
+        let t = Theme::light();
+        assert!(t.borders.width > 0);
+        assert!(t.borders.radius_small <= t.borders.radius);
+        assert!(t.borders.radius <= t.borders.radius_large);
+    }
+
+    // ----- ThemeManager -----
+
+    #[test]
+    fn manager_default_starts_with_three_themes() {
+        let m = ThemeManager::default();
+        let names = m.list_themes();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"Light"));
+        assert!(names.contains(&"Dark"));
+        assert!(names.contains(&"alexJammin"));
+    }
+
+    #[test]
+    fn manager_default_current_is_light() {
+        let m = ThemeManager::new();
+        assert_eq!(m.current().name, "Light");
+    }
+
+    #[test]
+    fn manager_set_theme_to_existing_succeeds() {
+        let mut m = ThemeManager::new();
+        assert!(m.set_theme("Dark").is_ok());
+        assert_eq!(m.current().name, "Dark");
+    }
+
+    #[test]
+    fn manager_set_theme_to_missing_returns_err() {
+        let mut m = ThemeManager::new();
+        let err = m.set_theme("Solarized").unwrap_err();
+        assert!(err.contains("Solarized"));
+        // current theme should be unchanged.
+        assert_eq!(m.current().name, "Light");
+    }
+
+    #[test]
+    fn manager_add_theme_makes_it_available() {
+        let mut m = ThemeManager::new();
+        let mut custom = Theme::light();
+        custom.name = "Custom".to_string();
+        m.add_theme(custom);
+        assert!(m.list_themes().contains(&"Custom"));
+        assert!(m.set_theme("Custom").is_ok());
+        assert_eq!(m.current().name, "Custom");
+    }
+
+    #[test]
+    fn manager_add_theme_overwrites_same_name() {
+        let mut m = ThemeManager::new();
+        let mut replacement = Theme::light();
+        replacement.name = "Light".to_string();
+        // Sentinel: change a typography value to detect overwrite.
+        replacement.typography.font_size_base = 999;
+        m.add_theme(replacement);
+        assert_eq!(m.current().typography.font_size_base, 999);
+    }
+
+    #[test]
+    fn manager_list_themes_returns_all_keys() {
+        let mut m = ThemeManager::new();
+        let mut t = Theme::dark();
+        t.name = "Extra".to_string();
+        m.add_theme(t);
+        assert_eq!(m.list_themes().len(), 4);
+    }
+}

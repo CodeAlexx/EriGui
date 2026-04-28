@@ -28,6 +28,12 @@ pub struct KeyboardNavigationManager {
     focus_trap: Option<String>, // Group ID that traps focus
 }
 
+impl Default for KeyboardNavigationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyboardNavigationManager {
     pub fn new() -> Self {
         Self {
@@ -49,7 +55,7 @@ impl KeyboardNavigationManager {
         if let Some(group) = group_id {
             self.focus_groups
                 .entry(group)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id);
         }
 
@@ -169,12 +175,10 @@ impl KeyboardNavigationManager {
                     .position(|&id| id == self.focus_order[idx])?;
                 if forward {
                     (current_pos + 1) % candidates.len()
+                } else if current_pos == 0 {
+                    candidates.len() - 1
                 } else {
-                    if current_pos == 0 {
-                        candidates.len() - 1
-                    } else {
-                        current_pos - 1
-                    }
+                    current_pos - 1
                 }
             }
             None => 0,

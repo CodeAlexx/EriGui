@@ -297,8 +297,7 @@ impl Icon {
         let size = bounds.width().min(bounds.height()) as f32 * 0.5;
 
         // Draw chevron pointing right
-        let points = vec![
-            Point::new(
+        let points = [Point::new(
                 (center.x as f32 - size * 0.3) as i32,
                 (center.y as f32 - size * 0.5) as i32,
             ),
@@ -306,8 +305,7 @@ impl Icon {
             Point::new(
                 (center.x as f32 - size * 0.3) as i32,
                 (center.y as f32 + size * 0.5) as i32,
-            ),
-        ];
+            )];
 
         context.set_color(color);
         context.set_line_width(2);

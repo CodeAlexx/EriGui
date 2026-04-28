@@ -2,9 +2,13 @@
 resolver = "2"
 members = [
     "erigui-core",
-    "erigui-widgets", 
+    "erigui-widgets",
     "erigui-rendering",
     "erigui-examples",
+    "erigui-nodes",
+    "erigui-workflow",
+    "erigui-runtime",
+    "erigui-app",
 ]
 
 [workspace.package]
@@ -23,9 +27,9 @@ env_logger = "0.11"
 
 # Graphics dependencies (Wayland-only; avoid pulling X11 back in)
 gl = "0.14"
-glutin = { version = "0.30", default-features = false, features = ["egl", "wayland", "x11", "glx"] }
-glutin-winit = { version = "0.3", default-features = false, features = ["egl", "wayland", "x11"] }
-winit = { version = "0.28", default-features = false, features = ["wayland", "wayland-dlopen", "x11"] }
+glutin = { version = "0.31", default-features = false, features = ["egl", "wayland", "x11", "glx"] }
+glutin-winit = { version = "0.4", default-features = false, features = ["egl", "wayland", "x11"] }
+winit = { version = "0.29", default-features = false, features = ["wayland", "wayland-dlopen", "x11", "rwh_05"] }
 raw-window-handle = "0.5"
 
 # Font rendering - use freetype for proper font rendering

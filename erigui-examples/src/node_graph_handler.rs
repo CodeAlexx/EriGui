@@ -235,7 +235,9 @@ impl GraphHandler {
                     Field {
                         id: 0,
                         label: "file".into(),
-                        kind: FieldKind::FilePath,
+                        kind: FieldKind::FilePath {
+                            extensions: vec!["png".into(), "jpg".into(), "jpeg".into()],
+                        },
                         value: FieldValue::Text("choose file".into()),
                     },
                     Field {
@@ -1326,32 +1328,13 @@ pub fn default_graph() -> Graph {
 }
 
 pub fn trainer_graph() -> Graph {
-    let mut nodes = Vec::new();
-    nodes.push(GraphHandler::trainer_model_node(
-        1,
-        "Model Specs",
-        Point::new(260, 200),
-    ));
-    nodes.push(GraphHandler::trainer_data_node(
-        2,
-        "Data Specs",
-        Point::new(560, 200),
-    ));
-    nodes.push(GraphHandler::trainer_training_node(
-        3,
-        "Training Specs",
-        Point::new(880, 200),
-    ));
-    nodes.push(GraphHandler::trainer_sampling_node(
-        4,
-        "Sampling",
-        Point::new(1220, 200),
-    ));
-    nodes.push(GraphHandler::trainer_special_node(
-        5,
-        "Specialized",
-        Point::new(1540, 200),
-    ));
+    let nodes = vec![
+        GraphHandler::trainer_model_node(1, "Model Specs", Point::new(260, 200)),
+        GraphHandler::trainer_data_node(2, "Data Specs", Point::new(560, 200)),
+        GraphHandler::trainer_training_node(3, "Training Specs", Point::new(880, 200)),
+        GraphHandler::trainer_sampling_node(4, "Sampling", Point::new(1220, 200)),
+        GraphHandler::trainer_special_node(5, "Specialized", Point::new(1540, 200)),
+    ];
     Graph {
         nodes,
         edges: vec![
@@ -1384,35 +1367,36 @@ pub fn trainer_graph() -> Graph {
 }
 
 pub fn samples_graph() -> Graph {
-    let mut nodes = Vec::new();
-    nodes.push(Node {
-        id: 1,
-        title: "Samples Browser".into(),
-        position: Point::new(260, 220),
-        size: Size::new(360, 280),
-        inputs: vec![],
-        outputs: vec![],
-        fields: vec![
-            text_field(0, "Samples Folder", "/home/alex/Eri/backend/output"),
-            select_field(1, "View Mode", &["grid", "list"], "grid"),
-            number_field(2, "Refresh Seconds", 5.0, 1.0, 60.0, 1.0),
-        ],
-        component_type: Some("samples_view".into()),
-    });
-    nodes.push(Node {
-        id: 2,
-        title: "Image Display".into(),
-        position: Point::new(640, 220),
-        size: Size::new(320, 320),
-        inputs: vec![Port {
-            id: 0,
-            label: "images".into(),
-            is_input: true,
-        }],
-        outputs: vec![],
-        fields: vec![select_field(0, "Mode", &["thumbnail", "full"], "thumbnail")],
-        component_type: Some("image_display".into()),
-    });
+    let nodes = vec![
+        Node {
+            id: 1,
+            title: "Samples Browser".into(),
+            position: Point::new(260, 220),
+            size: Size::new(360, 280),
+            inputs: vec![],
+            outputs: vec![],
+            fields: vec![
+                text_field(0, "Samples Folder", "/home/alex/Eri/backend/output"),
+                select_field(1, "View Mode", &["grid", "list"], "grid"),
+                number_field(2, "Refresh Seconds", 5.0, 1.0, 60.0, 1.0),
+            ],
+            component_type: Some("samples_view".into()),
+        },
+        Node {
+            id: 2,
+            title: "Image Display".into(),
+            position: Point::new(640, 220),
+            size: Size::new(320, 320),
+            inputs: vec![Port {
+                id: 0,
+                label: "images".into(),
+                is_input: true,
+            }],
+            outputs: vec![],
+            fields: vec![select_field(0, "Mode", &["thumbnail", "full"], "thumbnail")],
+            component_type: Some("image_display".into()),
+        },
+    ];
     Graph {
         nodes,
         edges: Vec::new(),

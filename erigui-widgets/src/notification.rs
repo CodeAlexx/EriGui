@@ -7,6 +7,11 @@ use std::any::Any;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+/// Callback fired when a notification action button is clicked. Argument: notification id.
+type ActionClickedCallback = Box<dyn FnMut(&str)>;
+/// Callback fired when a notification is closed. Argument: notification id.
+type NotificationClosedCallback = Box<dyn FnMut(&str)>;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NotificationType {
     Info,
@@ -122,8 +127,8 @@ pub struct NotificationManager {
     notification_width: i32,
     notification_height: i32,
     animation_speed: f32,
-    on_action_clicked: Option<Box<dyn FnMut(&str)>>,
-    on_notification_closed: Option<Box<dyn FnMut(&str)>>,
+    on_action_clicked: Option<ActionClickedCallback>,
+    on_notification_closed: Option<NotificationClosedCallback>,
 }
 
 impl NotificationManager {

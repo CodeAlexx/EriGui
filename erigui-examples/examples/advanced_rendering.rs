@@ -225,19 +225,19 @@ impl Widget for AdvancedRenderingDemo {
 }
 
 fn main() -> erigui_core::Result<()> {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 800, 600, "Advanced Rendering Demo")?;
 
     let theme = Theme::light();
     let mut demo = AdvancedRenderingDemo::new(WidgetId::default());
     demo.layout(Rect::new(0, 0, 800, 600), &theme);
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
 
         match event {
             WinitEvent::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => elwt.exit(),
                 WindowEvent::Resized(physical_size) => {
                     renderer.resize(physical_size.width, physical_size.height);
                     let size = Size::new(physical_size.width as i32, physical_size.height as i32);
@@ -245,10 +245,10 @@ fn main() -> erigui_core::Result<()> {
                 }
                 _ => {}
             },
-            WinitEvent::MainEventsCleared => {
+            WinitEvent::AboutToWait => {
                 renderer.window().request_redraw();
             }
-            WinitEvent::RedrawRequested(_) => {
+            WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 renderer.begin_frame(theme.colors.background);
                 demo.draw(&mut renderer, &theme);
                 renderer.end_frame();
@@ -258,5 +258,6 @@ fn main() -> erigui_core::Result<()> {
             }
             _ => {}
         }
-    });
+    }).unwrap();
+    Ok(())
 }

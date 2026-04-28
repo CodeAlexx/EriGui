@@ -1,0 +1,25 @@
+[package]
+name = "erigui-nodes"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+erigui-widgets = { path = "../erigui-widgets" }
+serde = { version = "1", features = ["derive"] }
+thiserror = { workspace = true }
+
+# Wave 2: Klein architecture wiring. Path is relative to this crate's
+# directory: erigui-nodes -> rust-gui -> EriGui -> /home/alex; then down
+# into EriDiffusion/inference-flame.
+inference-flame = { path = "../../../EriDiffusion/inference-flame" }
+flame-core = { path = "../../../EriDiffusion/flame-core", default-features = false, features = ["cuda", "bf16_u16", "cudnn", "shared_storage"] }
+serde_json = "1"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+
+# B6 (save_image): PNG encoding + timestamped filenames. `image` and `chrono`
+# are already transitive deps (via erigui-widgets / inference-flame) but must
+# be declared directly here to be importable.
+image = { version = "0.24", default-features = false, features = ["png"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

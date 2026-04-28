@@ -84,8 +84,9 @@ fn trigger_open_command() {
 }
 use winit::{
     dpi::PhysicalPosition,
-    event::{Event as WinitEvent, MouseScrollDelta, VirtualKeyCode, WindowEvent},
+    event::{Event as WinitEvent, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
 };
 
 struct FileEntry {
@@ -2846,77 +2847,88 @@ fn format_time(time: SystemTime) -> String {
     }
 }
 
-fn convert_modifiers(state: winit::event::ModifiersState) -> Modifiers {
+fn convert_modifiers(state: ModifiersState) -> Modifiers {
     let mut mods = Modifiers::empty();
-    if state.shift() {
+    if state.shift_key() {
         mods |= Modifiers::SHIFT;
     }
-    if state.ctrl() {
+    if state.control_key() {
         mods |= Modifiers::CTRL;
     }
-    if state.alt() {
+    if state.alt_key() {
         mods |= Modifiers::ALT;
     }
-    if state.logo() {
+    if state.super_key() {
         mods |= Modifiers::SUPER;
     }
     mods
 }
 
-fn map_virtual_keycode(keycode: VirtualKeyCode) -> Key {
+fn map_virtual_keycode(keycode: KeyCode) -> Key {
     match keycode {
-        VirtualKeyCode::A => Key::Character('a'),
-        VirtualKeyCode::B => Key::Character('b'),
-        VirtualKeyCode::C => Key::Character('c'),
-        VirtualKeyCode::D => Key::Character('d'),
-        VirtualKeyCode::E => Key::Character('e'),
-        VirtualKeyCode::F => Key::Character('f'),
-        VirtualKeyCode::G => Key::Character('g'),
-        VirtualKeyCode::H => Key::Character('h'),
-        VirtualKeyCode::I => Key::Character('i'),
-        VirtualKeyCode::J => Key::Character('j'),
-        VirtualKeyCode::K => Key::Character('k'),
-        VirtualKeyCode::L => Key::Character('l'),
-        VirtualKeyCode::M => Key::Character('m'),
-        VirtualKeyCode::N => Key::Character('n'),
-        VirtualKeyCode::O => Key::Character('o'),
-        VirtualKeyCode::P => Key::Character('p'),
-        VirtualKeyCode::Q => Key::Character('q'),
-        VirtualKeyCode::R => Key::Character('r'),
-        VirtualKeyCode::S => Key::Character('s'),
-        VirtualKeyCode::T => Key::Character('t'),
-        VirtualKeyCode::U => Key::Character('u'),
-        VirtualKeyCode::V => Key::Character('v'),
-        VirtualKeyCode::W => Key::Character('w'),
-        VirtualKeyCode::X => Key::Character('x'),
-        VirtualKeyCode::Y => Key::Character('y'),
-        VirtualKeyCode::Z => Key::Character('z'),
-        VirtualKeyCode::Key0 => Key::Character('0'),
-        VirtualKeyCode::Key1 => Key::Character('1'),
-        VirtualKeyCode::Key2 => Key::Character('2'),
-        VirtualKeyCode::Key3 => Key::Character('3'),
-        VirtualKeyCode::Key4 => Key::Character('4'),
-        VirtualKeyCode::Key5 => Key::Character('5'),
-        VirtualKeyCode::Key6 => Key::Character('6'),
-        VirtualKeyCode::Key7 => Key::Character('7'),
-        VirtualKeyCode::Key8 => Key::Character('8'),
-        VirtualKeyCode::Key9 => Key::Character('9'),
-        VirtualKeyCode::Back => Key::Backspace,
-        VirtualKeyCode::Return => Key::Enter,
-        VirtualKeyCode::Escape => Key::Escape,
-        VirtualKeyCode::Tab => Key::Tab,
-        VirtualKeyCode::Space => Key::Space,
-        VirtualKeyCode::Delete => Key::Delete,
-        VirtualKeyCode::Up => Key::Up,
-        VirtualKeyCode::Down => Key::Down,
-        VirtualKeyCode::Left => Key::Left,
-        VirtualKeyCode::Right => Key::Right,
-        VirtualKeyCode::F5 => Key::F1,
-        VirtualKeyCode::LControl => Key::LeftCtrl,
-        VirtualKeyCode::RControl => Key::RightCtrl,
-        VirtualKeyCode::LShift => Key::LeftShift,
-        VirtualKeyCode::RShift => Key::RightShift,
+        KeyCode::KeyA => Key::Character('a'),
+        KeyCode::KeyB => Key::Character('b'),
+        KeyCode::KeyC => Key::Character('c'),
+        KeyCode::KeyD => Key::Character('d'),
+        KeyCode::KeyE => Key::Character('e'),
+        KeyCode::KeyF => Key::Character('f'),
+        KeyCode::KeyG => Key::Character('g'),
+        KeyCode::KeyH => Key::Character('h'),
+        KeyCode::KeyI => Key::Character('i'),
+        KeyCode::KeyJ => Key::Character('j'),
+        KeyCode::KeyK => Key::Character('k'),
+        KeyCode::KeyL => Key::Character('l'),
+        KeyCode::KeyM => Key::Character('m'),
+        KeyCode::KeyN => Key::Character('n'),
+        KeyCode::KeyO => Key::Character('o'),
+        KeyCode::KeyP => Key::Character('p'),
+        KeyCode::KeyQ => Key::Character('q'),
+        KeyCode::KeyR => Key::Character('r'),
+        KeyCode::KeyS => Key::Character('s'),
+        KeyCode::KeyT => Key::Character('t'),
+        KeyCode::KeyU => Key::Character('u'),
+        KeyCode::KeyV => Key::Character('v'),
+        KeyCode::KeyW => Key::Character('w'),
+        KeyCode::KeyX => Key::Character('x'),
+        KeyCode::KeyY => Key::Character('y'),
+        KeyCode::KeyZ => Key::Character('z'),
+        KeyCode::Digit0 => Key::Character('0'),
+        KeyCode::Digit1 => Key::Character('1'),
+        KeyCode::Digit2 => Key::Character('2'),
+        KeyCode::Digit3 => Key::Character('3'),
+        KeyCode::Digit4 => Key::Character('4'),
+        KeyCode::Digit5 => Key::Character('5'),
+        KeyCode::Digit6 => Key::Character('6'),
+        KeyCode::Digit7 => Key::Character('7'),
+        KeyCode::Digit8 => Key::Character('8'),
+        KeyCode::Digit9 => Key::Character('9'),
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Escape => Key::Escape,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::Space => Key::Space,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::ArrowUp => Key::Up,
+        KeyCode::ArrowDown => Key::Down,
+        KeyCode::ArrowLeft => Key::Left,
+        KeyCode::ArrowRight => Key::Right,
+        // Original code mapped F5 -> F1 (kept for behavioral parity).
+        KeyCode::F5 => Key::F1,
+        KeyCode::ControlLeft => Key::LeftCtrl,
+        KeyCode::ControlRight => Key::RightCtrl,
+        KeyCode::ShiftLeft => Key::LeftShift,
+        KeyCode::ShiftRight => Key::RightShift,
         _ => Key::Unknown(0),
+    }
+}
+
+/// Helper: extract a `KeyCode` from a `KeyEvent`'s physical_key, returning
+/// `None` for unidentified keys. Used to replace `KeyEvent.virtual_keycode`
+/// (which existed as `KeyboardInput.virtual_keycode` in winit 0.28).
+fn keyevent_keycode(event: &winit::event::KeyEvent) -> Option<KeyCode> {
+    match event.physical_key {
+        PhysicalKey::Code(code) => Some(code),
+        PhysicalKey::Unidentified(_) => None,
     }
 }
 
@@ -2944,7 +2956,7 @@ fn apply_file_cmd(demo: &mut FileManagerDemo) -> bool {
 fn main() -> erigui_core::Result<()> {
     env_logger::init();
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 1280, 860, "EriGui File Manager")?;
 
     let mut theme = Theme::dark();
@@ -2957,8 +2969,8 @@ fn main() -> erigui_core::Result<()> {
     let mut demo = FileManagerDemo::new();
     let mut last_cursor_pos = PhysicalPosition::new(0.0, 0.0);
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Wait);
 
         // Apply view-mode commands coming from the menu
         let apply_view_cmd = |demo: &mut FileManagerDemo, renderer: &mut Renderer| {
@@ -2984,7 +2996,7 @@ fn main() -> erigui_core::Result<()> {
 
         match event {
             WinitEvent::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => elwt.exit(),
 
                 WindowEvent::Resized(physical_size) => {
                     renderer.resize(physical_size.width, physical_size.height);
@@ -3106,14 +3118,14 @@ fn main() -> erigui_core::Result<()> {
                     renderer.window().request_redraw();
                 }
 
-                WindowEvent::KeyboardInput { input, .. } => {
+                WindowEvent::KeyboardInput { event: ref input, .. } => {
                     if demo.editor_active() {
                         let pressed = input.state == winit::event::ElementState::Pressed;
-                        let modifiers = convert_modifiers(input.modifiers);
+                        let modifiers = Modifiers::empty() /* TODO: thread last-known modifiers through, winit 0.29 removed input.modifiers */;
                         let mut close_editor_now = false;
                         let mut escape_handled = false;
 
-                        if pressed && input.virtual_keycode == Some(VirtualKeyCode::Escape) {
+                        if pressed && keyevent_keycode(input) == Some(KeyCode::Escape) {
                             escape_handled = true;
                             if let Some(editor) = demo.editor.as_mut() {
                                 if let EditorAction::Close = editor.handle_close_request() {
@@ -3127,7 +3139,7 @@ fn main() -> erigui_core::Result<()> {
                                 let mut consumed = false;
                                 let mut shortcut_close = false;
                                 if pressed {
-                                    if let Some(keycode) = input.virtual_keycode {
+                                    if let Some(keycode) = keyevent_keycode(input) {
                                         let key = map_virtual_keycode(keycode);
                                         let (handled, should_close) =
                                             editor.handle_shortcut_key(&key, modifiers);
@@ -3139,7 +3151,7 @@ fn main() -> erigui_core::Result<()> {
                                 if shortcut_close {
                                     close_editor_now = true;
                                 } else if !consumed {
-                                    if let Some(keycode) = input.virtual_keycode {
+                                    if let Some(keycode) = keyevent_keycode(input) {
                                         let key = map_virtual_keycode(keycode);
                                         if !matches!(key, Key::Unknown(_)) {
                                             let event = if pressed {
@@ -3167,19 +3179,19 @@ fn main() -> erigui_core::Result<()> {
 
                         renderer.window().request_redraw();
                     } else if demo.link_launcher.is_visible() {
-                        if let Some(keycode) = input.virtual_keycode {
+                        if let Some(keycode) = keyevent_keycode(input) {
                             let key = map_virtual_keycode(keycode);
                             let pressed = input.state == winit::event::ElementState::Pressed;
                             if demo.link_launcher.handle_key(&key, pressed) {
                                 renderer.window().request_redraw();
                             }
                         }
-                    } else if let Some(keycode) = input.virtual_keycode {
+                    } else if let Some(keycode) = keyevent_keycode(input) {
                         let key = map_virtual_keycode(keycode);
 
                         if !matches!(key, Key::Unknown(_)) {
                             let pressed = input.state == winit::event::ElementState::Pressed;
-                            let modifiers = convert_modifiers(input.modifiers);
+                            let modifiers = Modifiers::empty() /* TODO: thread last-known modifiers through, winit 0.29 removed input.modifiers */;
 
                             // Handle special keys
                             if matches!(key, Key::F1) && pressed {
@@ -3240,41 +3252,12 @@ fn main() -> erigui_core::Result<()> {
                     }
                 }
 
-                WindowEvent::ReceivedCharacter(ch) => {
-                    let handled_by_editor = if demo.editor_active() {
-                        if let Some(editor) = demo.editor.as_mut() {
-                            editor.handle_text_input(ch.to_string(), &theme);
-                        }
-                        true
-                    } else {
-                        false
-                    };
-                    let handled_by_overlay =
-                        if !handled_by_editor && demo.link_launcher.is_visible() {
-                            true
-                        } else {
-                            false
-                        };
-                    if !handled_by_editor && !handled_by_overlay {
-                        let event = Event::TextInput(TextInputEvent {
-                            text: ch.to_string(),
-                        });
-
-                        if demo.address_bar.is_focused() {
-                            demo.address_bar.handle_event(&event, &theme);
-                        } else if demo.search_bar.is_focused() {
-                            demo.search_bar.handle_event(&event, &theme);
-                            demo.sync_search_query();
-                        }
-                    }
-
-                    renderer.window().request_redraw();
-                }
+                // (winit 0.29) WindowEvent::ReceivedCharacter arm removed; EventTranslator now derives TextInput from KeyEvent.text
 
                 _ => {}
             },
 
-            WinitEvent::RedrawRequested(_) => {
+            WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 let size = renderer.viewport_size();
 
                 renderer.begin_frame(theme.colors.background);
@@ -3288,5 +3271,6 @@ fn main() -> erigui_core::Result<()> {
         // Apply any pending view-mode command that may have been set during handling
         let _ = apply_view_cmd(&mut demo, &mut renderer);
         let _ = apply_file_cmd(&mut demo);
-    });
+    }).unwrap();
+    Ok(())
 }

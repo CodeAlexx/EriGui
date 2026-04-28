@@ -5,6 +5,10 @@ use erigui_core::{
 };
 use std::any::Any;
 
+/// Callback fired when the user navigates to a breadcrumb item.
+/// Arguments: item id, item index.
+type NavigateCallback = Box<dyn FnMut(&str, usize)>;
+
 #[derive(Clone)]
 pub struct BreadcrumbItem {
     pub text: String,
@@ -44,7 +48,7 @@ pub struct Breadcrumb {
     padding: i32,
 
     // Callbacks
-    on_navigate: Option<Box<dyn FnMut(&str, usize)>>,
+    on_navigate: Option<NavigateCallback>,
 }
 
 impl Breadcrumb {
@@ -147,6 +151,9 @@ impl Breadcrumb {
         }
     }
 
+    // Internal drawing helper — flat positional params keep the call sites
+    // (the per-item draw loop in `draw`) readable.
+    #[allow(clippy::too_many_arguments)]
     fn draw_item(
         &self,
         context: &mut dyn DrawContext,

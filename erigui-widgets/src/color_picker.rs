@@ -476,12 +476,10 @@ impl Widget for ColorPicker {
                             if *pressed {
                                 self.dragging_sv = true;
                                 let s = ((position.x - sv_rect.x()) as f32 / sv_size as f32)
-                                    .max(0.0)
-                                    .min(1.0);
+                                    .clamp(0.0, 1.0);
                                 let v = 1.0
                                     - ((position.y - sv_rect.y()) as f32 / sv_size as f32)
-                                        .max(0.0)
-                                        .min(1.0);
+                                        .clamp(0.0, 1.0);
                                 self.hsv.1 = s;
                                 self.hsv.2 = v;
                                 self.update_color_from_hsv();
@@ -504,8 +502,7 @@ impl Widget for ColorPicker {
                                 self.dragging_hue = true;
                                 let hue = ((position.x - hue_rect.x()) as f32 / sv_size as f32
                                     * 360.0)
-                                    .max(0.0)
-                                    .min(360.0);
+                                    .clamp(0.0, 360.0);
                                 self.hsv.0 = hue;
                                 self.update_color_from_hsv();
                             }
@@ -577,12 +574,10 @@ impl Widget for ColorPicker {
                         let sv_rect =
                             Rect::new(content_x, popup_rect.y() + padding, sv_size, sv_size);
                         let s = ((position.x - sv_rect.x()) as f32 / sv_size as f32)
-                            .max(0.0)
-                            .min(1.0);
+                            .clamp(0.0, 1.0);
                         let v = 1.0
                             - ((position.y - sv_rect.y()) as f32 / sv_size as f32)
-                                .max(0.0)
-                                .min(1.0);
+                                .clamp(0.0, 1.0);
                         self.hsv.1 = s;
                         self.hsv.2 = v;
                         self.update_color_from_hsv();
@@ -597,8 +592,7 @@ impl Widget for ColorPicker {
                             20,
                         );
                         let hue = ((position.x - hue_rect.x()) as f32 / sv_size as f32 * 360.0)
-                            .max(0.0)
-                            .min(360.0);
+                            .clamp(0.0, 360.0);
                         self.hsv.0 = hue;
                         self.update_color_from_hsv();
                         return EventResult::Consumed;

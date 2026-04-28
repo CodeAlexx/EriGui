@@ -182,6 +182,9 @@ impl Toolbar {
         }
     }
 
+    // Internal drawing helper — flat positional params keep the toolbar
+    // item-drawing loop readable.
+    #[allow(clippy::too_many_arguments)]
     fn draw_button(
         &self,
         context: &mut dyn DrawContext,
@@ -631,10 +634,12 @@ impl Widget for Toolbar {
                 if let Some(index) = clicked_item {
                     match clicked_action {
                         Some("button") => {
-                            if let ToolbarItem::Button { on_click, .. } = &mut self.items[index] {
-                                if let Some(callback) = on_click {
-                                    callback();
-                                }
+                            if let ToolbarItem::Button {
+                                on_click: Some(callback),
+                                ..
+                            } = &mut self.items[index]
+                            {
+                                callback();
                             }
                         }
                         Some("dropdown") => {
@@ -654,8 +659,7 @@ impl Widget for Toolbar {
                             }
 
                             // Handle toggle groups
-                            if was_pressed && group_id.is_some() {
-                                let gid = group_id.unwrap();
+                            if let Some(gid) = group_id.filter(|_| was_pressed) {
                                 for (j, item) in self.items.iter_mut().enumerate() {
                                     if index != j {
                                         if let ToolbarItem::ToggleButton {
@@ -671,12 +675,12 @@ impl Widget for Toolbar {
                             }
 
                             // Call the callback
-                            if let ToolbarItem::ToggleButton { on_toggle, .. } =
-                                &mut self.items[index]
+                            if let ToolbarItem::ToggleButton {
+                                on_toggle: Some(callback),
+                                ..
+                            } = &mut self.items[index]
                             {
-                                if let Some(callback) = on_toggle {
-                                    callback(was_pressed);
-                                }
+                                callback(was_pressed);
                             }
                         }
                         _ => {}

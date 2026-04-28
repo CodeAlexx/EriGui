@@ -6,6 +6,9 @@ use erigui_core::{
 use std::any::Any;
 use std::path::{Path, PathBuf};
 
+/// Callback fired when the user selects a file. Argument: selected path.
+type FileSelectCallback = Box<dyn FnMut(&Path)>;
+
 pub struct FileManager {
     state: WidgetState,
     container_id: WidgetId,
@@ -15,7 +18,7 @@ pub struct FileManager {
     _status_label_id: WidgetId,
     current_path: PathBuf,
     show_hidden: bool,
-    on_file_select: Option<Box<dyn FnMut(&Path)>>,
+    on_file_select: Option<FileSelectCallback>,
 }
 
 impl FileManager {
@@ -148,7 +151,6 @@ impl Widget for FileManager {
 
     fn draw(&self, _context: &mut dyn DrawContext, _theme: &Theme) {
         if !self.state.visible {
-            return;
         }
 
         // The actual drawing is handled by the child widgets

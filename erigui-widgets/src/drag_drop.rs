@@ -27,6 +27,12 @@ pub struct DragDropManager {
     drag_effect: DragDropEffect,
 }
 
+impl Default for DragDropManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DragDropManager {
     pub fn new() -> Self {
         Self {

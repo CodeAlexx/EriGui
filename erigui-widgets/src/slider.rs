@@ -191,7 +191,7 @@ impl Widget for Slider {
             SliderOrientation::Horizontal => Rect::new(
                 track_rect.x(),
                 track_rect.y(),
-                ((thumb_rect.center().x - track_rect.x()) as i32).max(0),
+                (thumb_rect.center().x - track_rect.x()).max(0),
                 track_rect.height(),
             ),
             SliderOrientation::Vertical => {
@@ -266,13 +266,11 @@ impl Widget for Slider {
                         } else {
                             EventResult::Ignored
                         }
+                    } else if self.is_dragging {
+                        self.is_dragging = false;
+                        EventResult::Consumed
                     } else {
-                        if self.is_dragging {
-                            self.is_dragging = false;
-                            EventResult::Consumed
-                        } else {
-                            EventResult::Ignored
-                        }
+                        EventResult::Ignored
                     }
                 } else {
                     EventResult::Ignored

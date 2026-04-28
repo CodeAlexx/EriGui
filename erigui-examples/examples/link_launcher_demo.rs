@@ -127,14 +127,14 @@ fn map_mouse_button(btn: WinitMouseButton) -> MouseButton {
 fn main() -> erigui_core::Result<()> {
     env_logger::init();
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 640, 360, "Link Launcher Demo")?;
     let mut last_cursor = PhysicalPosition::new(0.0, 0.0);
     let theme = Theme::dark();
     let mut demo = LauncherDemo::new();
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Wait);
 
         if LAUNCH_CMD.swap(false, Ordering::SeqCst) {
             demo.process_launch();
@@ -143,7 +143,7 @@ fn main() -> erigui_core::Result<()> {
 
         match event {
             WinitEvent::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => elwt.exit(),
                 WindowEvent::Resized(new_size) => {
                     renderer.resize(new_size.width, new_size.height);
                     renderer.window().request_redraw();
@@ -163,7 +163,7 @@ fn main() -> erigui_core::Result<()> {
                 }
                 _ => {}
             },
-            WinitEvent::RedrawRequested(_) => {
+            WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 let size = renderer.viewport_size();
                 renderer.begin_frame(theme.colors.background);
                 demo.draw(&mut renderer, &theme, size);
@@ -171,5 +171,6 @@ fn main() -> erigui_core::Result<()> {
             }
             _ => {}
         }
-    });
+    }).unwrap();
+    Ok(())
 }

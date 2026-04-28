@@ -429,7 +429,7 @@ impl App {
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let event_loop = winit::event_loop::EventLoop::new();
+    let event_loop = winit::event_loop::EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 800, 600, "EriGui - Widget Gallery")?;
     let mut app = App::new();
 
@@ -439,13 +439,13 @@ fn main() -> anyhow::Result<()> {
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::ControlFlow;
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
 
         match event {
             Event::WindowEvent { event, .. } => {
                 match &event {
-                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    WindowEvent::CloseRequested => elwt.exit(),
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
                         app.layout_widgets(Size::new(
@@ -461,7 +461,7 @@ fn main() -> anyhow::Result<()> {
                     app.handle_event(&gui_event);
                 }
             }
-            Event::MainEventsCleared => {
+            Event::AboutToWait => {
                 renderer.begin_frame(Color::rgb(30, 30, 30));
 
                 // Draw debug rect to verify rendering works
@@ -477,5 +477,6 @@ fn main() -> anyhow::Result<()> {
             }
             _ => {}
         }
-    })
+    }).unwrap();
+    Ok(())
 }

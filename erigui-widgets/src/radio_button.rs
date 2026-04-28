@@ -364,9 +364,7 @@ impl RadioGroupManager {
 
     fn register_button(&mut self, button_id: WidgetId, group_id: u32) {
         self.button_groups.insert(button_id, group_id);
-        if !self.groups.contains_key(&group_id) {
-            self.groups.insert(group_id, None);
-        }
+        self.groups.entry(group_id).or_insert(None);
     }
 
     fn set_selected(&mut self, group_id: u32, button_id: WidgetId) {

@@ -186,12 +186,7 @@ impl TabControl {
             return None;
         }
 
-        for i in 0..self.tabs.len() {
-            if self.get_tab_rect(i).contains(point) {
-                return Some(i);
-            }
-        }
-        None
+        (0..self.tabs.len()).find(|&i| self.get_tab_rect(i).contains(point))
     }
 }
 

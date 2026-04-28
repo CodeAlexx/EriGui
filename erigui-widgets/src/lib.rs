@@ -3,6 +3,7 @@ pub mod accordion;
 pub mod breadcrumb;
 pub mod button;
 pub mod checkbox;
+pub mod clipboard;
 pub mod color_picker;
 pub mod combo_box;
 pub mod container;
@@ -39,6 +40,7 @@ pub use accordion::*;
 pub use breadcrumb::*;
 pub use button::*;
 pub use checkbox::*;
+pub use clipboard::{clear_clipboard, get_clipboard, set_clipboard};
 pub use color_picker::*;
 pub use combo_box::*;
 pub use container::*;
@@ -78,6 +80,12 @@ use slotmap::SlotMap;
 
 pub struct WidgetManager {
     widgets: SlotMap<WidgetId, Box<dyn Widget>>,
+}
+
+impl Default for WidgetManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WidgetManager {

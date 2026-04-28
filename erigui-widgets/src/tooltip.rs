@@ -177,6 +177,12 @@ pub struct TooltipManager {
     last_update: Instant,
 }
 
+impl Default for TooltipManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TooltipManager {
     pub fn new() -> Self {
         Self {

@@ -167,3 +167,73 @@ impl Default for WidgetState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----- EventResult -----
+
+    #[test]
+    fn event_result_consumed_is_consumed() {
+        assert!(EventResult::Consumed.is_consumed());
+        assert!(!EventResult::Consumed.is_ignored());
+    }
+
+    #[test]
+    fn event_result_ignored_is_ignored() {
+        assert!(EventResult::Ignored.is_ignored());
+        assert!(!EventResult::Ignored.is_consumed());
+    }
+
+    #[test]
+    fn event_result_consumed_and_ignored_distinct() {
+        assert_ne!(EventResult::Consumed, EventResult::Ignored);
+    }
+
+    #[test]
+    fn event_result_copy_does_not_consume() {
+        let r = EventResult::Consumed;
+        let r2 = r; // Copy
+        assert_eq!(r, r2);
+    }
+
+    // ----- WidgetState -----
+
+    #[test]
+    fn widget_state_new_defaults_to_visible_enabled_unfocused() {
+        let id = WidgetId::default();
+        let s = WidgetState::new(id);
+        assert_eq!(s.id, id);
+        assert!(s.visible);
+        assert!(s.enabled);
+        assert!(!s.focused);
+        assert!(s.tooltip.is_none());
+        assert_eq!(s.bounds, Rect::default());
+    }
+
+    #[test]
+    fn widget_state_default_matches_new_with_default_id() {
+        let s = WidgetState::default();
+        assert_eq!(s.id, WidgetId::default());
+        assert!(s.visible);
+        assert!(s.enabled);
+        assert!(!s.focused);
+        assert!(s.tooltip.is_none());
+    }
+
+    #[test]
+    fn widget_state_fields_mutable() {
+        let mut s = WidgetState::default();
+        s.visible = false;
+        s.enabled = false;
+        s.focused = true;
+        s.tooltip = Some("hi".to_string());
+        s.bounds = Rect::new(1, 2, 3, 4);
+        assert!(!s.visible);
+        assert!(!s.enabled);
+        assert!(s.focused);
+        assert_eq!(s.tooltip.as_deref(), Some("hi"));
+        assert_eq!(s.bounds, Rect::new(1, 2, 3, 4));
+    }
+}

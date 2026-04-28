@@ -214,18 +214,15 @@ impl Widget for ScrollView {
             return EventResult::Ignored;
         }
 
-        match event {
-            Event::MouseWheel(MouseWheelEvent {
+        if let Event::MouseWheel(MouseWheelEvent {
                 delta, position, ..
-            }) => {
-                if self.state.bounds.contains(*position) {
-                    self.scroll_offset.x -= delta.x * 20;
-                    self.scroll_offset.y -= delta.y * 20;
-                    self.clamp_scroll_offset();
-                    return EventResult::Consumed;
-                }
+            }) = event {
+            if self.state.bounds.contains(*position) {
+                self.scroll_offset.x -= delta.x * 20;
+                self.scroll_offset.y -= delta.y * 20;
+                self.clamp_scroll_offset();
+                return EventResult::Consumed;
             }
-            _ => {}
         }
 
         EventResult::Ignored

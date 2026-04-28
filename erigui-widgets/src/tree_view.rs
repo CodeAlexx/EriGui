@@ -4,6 +4,12 @@ use erigui_core::{
 };
 use std::any::Any;
 
+/// Callback fired when the selected tree node changes. Argument: selected node id.
+type SelectionChangeCallback = Box<dyn FnMut(&str)>;
+/// Callback fired when a tree node is expanded or collapsed.
+/// Arguments: node id, expanded flag.
+type ExpandCallback = Box<dyn FnMut(&str, bool)>;
+
 pub struct TreeNode {
     pub id: String,
     pub text: String,
@@ -50,8 +56,8 @@ pub struct TreeView {
     item_height: i32,
     indent_width: i32,
     scroll_offset: i32,
-    on_selection_change: Option<Box<dyn FnMut(&str)>>,
-    on_expand: Option<Box<dyn FnMut(&str, bool)>>,
+    on_selection_change: Option<SelectionChangeCallback>,
+    on_expand: Option<ExpandCallback>,
 }
 
 impl TreeView {

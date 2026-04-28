@@ -17,3 +17,8 @@ dirs = "5.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+# Wave 3 (C2): node-graph image-preview rendering. `gl` for the texture
+# handle type (allocation gated behind a runtime context check). The
+# tensor → RGB conversion lives in the host (erigui-app), so this crate
+# stays free of flame-core / cuDNN and its tests run without a GPU stack.
+gl = { workspace = true }

@@ -236,8 +236,7 @@ impl Accordion {
             let center = icon_rect.center();
             let size = icon_rect.width() as f32 * 0.5;
 
-            let points = vec![
-                Point::new(
+            let points = [Point::new(
                     (center.x as f32 - size * 0.5) as i32,
                     (center.y as f32 - size * 0.3) as i32,
                 ),
@@ -245,8 +244,7 @@ impl Accordion {
                 Point::new(
                     (center.x as f32 + size * 0.5) as i32,
                     (center.y as f32 - size * 0.3) as i32,
-                ),
-            ];
+                )];
 
             context.set_color(icon_color);
             context.set_line_width(2);

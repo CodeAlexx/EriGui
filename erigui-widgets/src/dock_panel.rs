@@ -6,6 +6,11 @@ use erigui_core::{
 use std::any::Any;
 use std::collections::HashMap;
 
+/// Callback fired when a docked panel is closed. Argument: panel id.
+type PanelCloseCallback = Box<dyn FnMut(&str)>;
+/// Callback fired when the dock layout changes.
+type LayoutChangeCallback = Box<dyn FnMut()>;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DockPosition {
     Left,
@@ -136,8 +141,8 @@ pub struct DockPanel {
     title_height: i32,
 
     // Callbacks
-    on_panel_close: Option<Box<dyn FnMut(&str)>>,
-    on_layout_change: Option<Box<dyn FnMut()>>,
+    on_panel_close: Option<PanelCloseCallback>,
+    on_layout_change: Option<LayoutChangeCallback>,
 }
 
 #[derive(Debug, Clone)]

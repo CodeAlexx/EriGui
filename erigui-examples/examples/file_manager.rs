@@ -10,7 +10,7 @@ use winit::{
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 1024, 768, "EriGui - File Manager")?;
     let mut widget_manager = WidgetManager::new();
 
@@ -25,14 +25,14 @@ fn main() -> anyhow::Result<()> {
         fm.layout(erigui_core::Rect::new(0, 0, 1024, 768), &theme);
     }
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
 
         match event {
             WinitEvent::WindowEvent { event, .. } => {
                 match &event {
                     WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
+                        elwt.exit();
                     }
                     WindowEvent::Resized(size) => {
                         renderer.resize(size.width, size.height);
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
                     route_event(&mut widget_manager, file_manager_id, &evt, &theme);
                 }
             }
-            WinitEvent::MainEventsCleared => {
+            WinitEvent::AboutToWait => {
                 renderer.begin_frame(Color::rgb(30, 30, 30));
 
                 if let Some(fm) = widget_manager.get(file_manager_id) {
@@ -81,7 +81,8 @@ fn main() -> anyhow::Result<()> {
             }
             _ => {}
         }
-    });
+    }).unwrap();
+    Ok(())
 }
 
 fn route_event(

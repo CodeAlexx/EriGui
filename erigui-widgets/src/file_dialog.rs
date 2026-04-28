@@ -7,6 +7,11 @@ use std::any::Any;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Callback fired when the user selects a file. Argument: selected path.
+type FileSelectedCallback = Box<dyn FnMut(&Path)>;
+/// Callback fired when the file dialog is cancelled.
+type CancelCallback = Box<dyn FnMut()>;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FileDialogMode {
     Open,
@@ -78,8 +83,8 @@ pub struct FileDialog {
     footer_rect: Rect,
 
     // Callbacks
-    on_file_selected: Option<Box<dyn FnMut(&Path)>>,
-    on_cancel: Option<Box<dyn FnMut()>>,
+    on_file_selected: Option<FileSelectedCallback>,
+    on_cancel: Option<CancelCallback>,
 }
 
 impl FileDialog {

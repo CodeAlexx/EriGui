@@ -4,6 +4,10 @@ use erigui_core::{
 };
 use std::any::Any;
 
+/// Callback fired when the combo box selection changes.
+/// Arguments: new selected index (if any), new selected text (if any).
+type SelectionChangedCallback = Box<dyn Fn(Option<usize>, Option<&str>)>;
+
 pub struct ComboBox {
     state: WidgetState,
     items: Vec<String>,
@@ -14,7 +18,7 @@ pub struct ComboBox {
     filtered_indices: Vec<usize>,
     dropdown_height: i32,
     max_visible_items: usize,
-    on_selection_changed: Option<Box<dyn Fn(Option<usize>, Option<&str>)>>,
+    on_selection_changed: Option<SelectionChangedCallback>,
 }
 
 impl ComboBox {
@@ -69,7 +73,7 @@ impl ComboBox {
     }
 
     pub fn set_selected(&mut self, index: Option<usize>) {
-        if index.map_or(true, |i| i < self.items.len()) {
+        if index.is_none_or(|i| i < self.items.len()) {
             self.selected_index = index;
             if let Some(handler) = &self.on_selection_changed {
                 handler(self.selected_index, self.selected_text());

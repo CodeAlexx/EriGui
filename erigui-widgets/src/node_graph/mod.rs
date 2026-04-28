@@ -1,4 +1,8 @@
+use crate::checkbox::Checkbox;
+use crate::combo_box::ComboBox;
 use crate::file_dialog::{FileDialog, FileDialogMode};
+use crate::slider::Slider;
+use crate::text_input::TextInput;
 use erigui_core::{
     Color, DragData, DragDropEvent, DrawContext, Event, EventResult, Key, KeyPressEvent,
     LayoutConstraints, Modifiers, MouseButton, MouseButtonEvent, Point, Rect, Size, Theme, Widget,
@@ -8,7 +12,43 @@ use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+// Wave 3 (C3): live per-node progress bars driven by the executor.
+// The submodule defines `NodeProgress`, the setter API, and the bar
+// renderer; this `mod` line and the corresponding `node_progress` field
+// on `NodeGraph` (initialized below) are the only edits made here.
+mod progress;
+pub use progress::NodeProgress;
+
+// Wave 3 (C4): right-click "add node" search menu. Self-contained submodule;
+// see `add_menu.rs` for the menu state, registry-handle trait, and tests.
+pub mod add_menu;
+pub use add_menu::{
+    AddMenuFieldSpec, AddMenuPortSpec, AddMenuSchema, AddNodeMenuState, NodeRegistryHandle,
+    RegistryEntry,
+};
+
+// Wave 3 (C2): inline image-preview rendering for nodes that emit
+// `NodeValue::Image`. The submodule defines `NodeImagePreview`,
+// `upload_image_to_texture`, and the `set_node_image` / `clear_node_image`
+// methods on `NodeGraph`. The `node_image_textures` field on `NodeGraph`
+// (initialized below) and the `draw_node_image_preview` invocation inside
+// `draw_nodes` are the only edits made here.
+mod preview;
+pub use preview::{upload_image_to_texture, NodeImagePreview, PreviewError};
+
+/// Per-field stateful widget instance cached across frames.
+/// Holds cursor / drag / dropdown / checked state that must persist between draws.
+enum FieldWidgetEntry {
+    Text(TextInput),
+    Number(Slider),
+    Select(ComboBox),
+    Bool(Checkbox),
+    /// FilePath uses the existing inline file_dialog flow; the entry stores no state.
+    FilePath,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Port {
@@ -57,7 +97,14 @@ pub enum FieldKind {
     Text,
     Number { min: f32, max: f32, step: f32 },
     Select { options: Vec<String> },
-    FilePath,
+    /// File-picker field. `extensions` is a hint passed to the file dialog
+    /// (e.g. `["safetensors", "ckpt"]`); empty = no filter.
+    FilePath {
+        #[serde(default)]
+        extensions: Vec<String>,
+    },
+    /// Boolean toggle, rendered inline as a checkbox.
+    Bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +112,10 @@ pub enum FieldValue {
     Text(String),
     Number(f32),
     Select(String),
+    /// Typed file-path value. Existing flows that wrote `FieldValue::Text(path)`
+    /// for FilePath fields are still accepted for back-compat.
+    FilePath(PathBuf),
+    Bool(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +168,11 @@ enum Interaction {
         start_world: Point,
         current_world: Point,
     },
+    /// Wave 1 (A3): user pressed inside a Number field; mouse-move events are
+    /// forwarded to the cached Slider until release.
+    FieldSliderDrag {
+        fref: FieldRef,
+    },
 }
 
 pub struct NodeGraph {
@@ -143,6 +199,34 @@ pub struct NodeGraph {
     hovered_field: Option<FieldRef>,
     show_grid: bool,
     drop_highlight: Option<usize>,
+    /// Wave 1 (A3): cached widget instances for inline field rendering.
+    /// Keyed by FieldRef; preserves cursor / drag / dropdown state across frames.
+    field_widgets: HashMap<FieldRef, FieldWidgetEntry>,
+    /// Wave 3 (C3): live execution-progress per node, driven by the
+    /// application draining `Executor::poll_progress()` each frame and
+    /// calling `set_node_progress(...)`. The widget itself does not pull
+    /// from any channel; it only renders what the host pushes.
+    pub node_progress: HashMap<usize, NodeProgress>,
+    /// Wave 3 (C4): currently-open right-click "add node" search menu.
+    /// `None` when closed. The host must wire a `NodeRegistryHandle` via
+    /// [`NodeGraph::set_node_registry`] before right-clicks can open it.
+    pub add_node_menu: Option<AddNodeMenuState>,
+    /// Wave 3 (C4): registry handle the menu queries when the user picks an
+    /// entry. Stored as `Arc<dyn ...>` so the same handle can be held by the
+    /// executor and the widget without ownership games.
+    add_node_registry: Option<Arc<dyn NodeRegistryHandle>>,
+    /// Wave 3 (C2): per-node image preview state. Keyed by `Node::id`. The
+    /// host calls `set_node_image(node_id, &tensor)` after the executor
+    /// emits a `NodeValue::Image` output; that uploads to a GL texture (or
+    /// falls back to CPU-side bytes when no GL context is current) and
+    /// `draw_nodes` blits the result inline below the field stack. Drop
+    /// frees the GL texture.
+    pub node_image_textures: HashMap<usize, NodeImagePreview>,
+    /// Per-node dirty set: nodes the user touched (field edited, edge wired
+    /// or removed) since the last `clear_dirty()`. The host's Queue button
+    /// reads this to enqueue only the work that actually needs to re-run,
+    /// instead of marking every node dirty.
+    pub dirty_nodes: HashSet<usize>,
 }
 
 impl NodeGraph {
@@ -171,6 +255,77 @@ impl NodeGraph {
             hovered_field: None,
             show_grid: true,
             drop_highlight: None,
+            field_widgets: HashMap::new(),
+            node_progress: HashMap::new(),
+            add_node_menu: None,
+            add_node_registry: None,
+            node_image_textures: HashMap::new(),
+            dirty_nodes: HashSet::new(),
+        }
+    }
+
+    // ---- Dirty-tracking API (host's Queue reads dirty_set, then clears) ----
+
+    /// Read-only view of the current dirty set.
+    pub fn dirty_set(&self) -> &HashSet<usize> {
+        &self.dirty_nodes
+    }
+
+    /// Drop every entry from the dirty set. Called by the host after it has
+    /// enqueued the dirty work so subsequent edits start a fresh frontier.
+    pub fn clear_dirty(&mut self) {
+        self.dirty_nodes.clear();
+    }
+
+    /// Mark `node_id` dirty. Idempotent. Called from every user-driven field
+    /// edit and from edge add/remove paths.
+    pub fn mark_dirty(&mut self, node_id: usize) {
+        self.dirty_nodes.insert(node_id);
+    }
+
+    // ---- Wave 3 (C4): add-node search menu API -----------------------------
+
+    /// Install the registry handle the right-click "add node" menu queries
+    /// when populating its list and seeding new nodes. Until this is set,
+    /// right-click on empty canvas is a no-op (existing edge/port-context
+    /// behavior is preserved unconditionally).
+    pub fn set_node_registry(&mut self, registry: Arc<dyn NodeRegistryHandle>) {
+        self.add_node_registry = Some(registry);
+    }
+
+    /// Open the add-node menu at the given **world** position. If no registry
+    /// is wired, this is a no-op (the menu cannot list anything).
+    pub fn open_add_menu_at(&mut self, world_pos: Point, registry: Arc<dyn NodeRegistryHandle>) {
+        self.add_node_menu = Some(AddNodeMenuState::new(world_pos, registry));
+    }
+
+    /// Close the add-node menu, dropping any in-progress search text.
+    pub fn close_add_menu(&mut self) {
+        self.add_node_menu = None;
+    }
+
+    /// Whether the add-node menu is currently open. Used by tests and by the
+    /// host to suppress other UI hotkeys while the menu owns the keyboard.
+    pub fn add_menu_open(&self) -> bool {
+        self.add_node_menu.is_some()
+    }
+
+    /// Test-only helper: simulate the user picking the first filtered entry
+    /// in the open menu. Returns `true` if a node was inserted. The real UI
+    /// invokes the same `select() + add_node()` flow when the user clicks an
+    /// item; exposing it here keeps the integration test independent of the
+    /// (still-stubbed) menu rendering pipeline.
+    pub fn add_menu_pick_first(&mut self) -> bool {
+        let node = match &self.add_node_menu {
+            Some(menu) => menu.select(),
+            None => None,
+        };
+        if let Some(n) = node {
+            self.add_node(n);
+            self.close_add_menu();
+            true
+        } else {
+            false
         }
     }
 
@@ -194,7 +349,7 @@ impl NodeGraph {
             .map(|node| {
                 node.fields
                     .iter()
-                    .any(|f| matches!(f.kind, FieldKind::FilePath))
+                    .any(|f| matches!(f.kind, FieldKind::FilePath { .. }))
             })
             .unwrap_or(false)
     }
@@ -232,12 +387,13 @@ impl NodeGraph {
             if let Some(field) = node
                 .fields
                 .iter_mut()
-                .find(|f| matches!(f.kind, FieldKind::FilePath))
+                .find(|f| matches!(f.kind, FieldKind::FilePath { .. }))
             {
-                field.value = FieldValue::Text(path.clone());
+                field.value = FieldValue::FilePath(PathBuf::from(path));
             }
             node.title = format!("Image: {}", file_name);
             self.refresh_preview_for(node_id, path);
+            self.mark_dirty(node_id);
             EventResult::Consumed
         } else {
             EventResult::Ignored
@@ -310,6 +466,13 @@ impl NodeGraph {
 
     pub fn delete_selected(&mut self) -> bool {
         self.remove_selected_nodes()
+    }
+
+    /// Test helper: whether a file dialog overlay is currently active.
+    /// Useful for headless tests that drive a click on a `FilePath` field
+    /// and want to assert the dialog opened.
+    pub fn is_file_dialog_open(&self) -> bool {
+        self.file_dialog.is_some()
     }
 
     fn to_screen_point(&self, world: Point) -> Point {
@@ -584,6 +747,22 @@ impl NodeGraph {
                 header_font,
             );
 
+            // Wave 3 (C3): draw the live-progress bar between the header and
+            // the field stack when the host has pushed a step event for this
+            // node. The setter API lives in `progress.rs`; here we only call
+            // the renderer.
+            if let Some(np) = self.node_progress.get(&node.id) {
+                progress::draw_node_progress_bar(
+                    ctx,
+                    theme,
+                    np,
+                    rect.origin,
+                    header_h,
+                    rect.size.width,
+                    self.zoom,
+                );
+            }
+
             // ports
             for port in &node.inputs {
                 if let Some(pos) = self.port_positions.get(&PortRef {
@@ -825,6 +1004,22 @@ impl NodeGraph {
                 );
             }
 
+            // Wave 3 (C2): inline tensor-image preview for nodes that emit
+            // `NodeValue::Image`. Independent of the file-based `image_previews`
+            // path above — this one is sourced from the executor at runtime.
+            if let Some(np) = self.node_image_textures.get(&node.id) {
+                preview::draw_node_image_preview(
+                    ctx,
+                    theme,
+                    np,
+                    Rect::from_origin_size(node.position, node.size),
+                    last_field_bottom,
+                    self.pan.x,
+                    self.pan.y,
+                    self.zoom,
+                );
+            }
+
             // resize handle (bottom-right)
             let handle_size = self.scale(12).clamp(10, 16);
             let handle_rect = Rect::new(
@@ -837,6 +1032,13 @@ impl NodeGraph {
             ctx.fill_rect(handle_rect);
             ctx.set_color(theme.colors.border);
             ctx.draw_rect(handle_rect);
+        }
+
+        // C4: right-click add-node menu. Rendered last so it sits above the
+        // node bodies. Anchor in screen space so the panel doesn't pan/zoom.
+        if let Some(state) = &self.add_node_menu {
+            let screen_pos = self.to_screen_point(state.position);
+            add_menu::draw_add_menu(ctx, theme, state, screen_pos);
         }
     }
 
@@ -878,6 +1080,8 @@ impl NodeGraph {
                 }
             }
             FieldValue::Select(s) => s.clone(),
+            FieldValue::FilePath(p) => p.display().to_string(),
+            FieldValue::Bool(b) => b.to_string(),
         }
     }
 
@@ -921,6 +1125,8 @@ impl NodeGraph {
 
     fn update_field_rects(&mut self) {
         self.field_rects.clear();
+        // Track which field refs still exist so we can prune stale cached widgets.
+        let mut live_refs: HashSet<FieldRef> = HashSet::new();
         for node in &mut self.graph.nodes {
             let header_h = 26;
             let mut y = node.position.y + header_h + 8;
@@ -930,23 +1136,220 @@ impl NodeGraph {
             }
             for field in &node.fields {
                 let field_h = match field.kind {
-                    FieldKind::Text | FieldKind::FilePath => 44,
+                    FieldKind::Text | FieldKind::FilePath { .. } => 44,
                     FieldKind::Number { .. } | FieldKind::Select { .. } => 32,
+                    FieldKind::Bool => 28,
                 };
                 let rect = Rect::new(node.position.x + 8, y, node.size.width - 16, field_h);
-                self.field_rects.insert(
-                    FieldRef {
-                        node_id: node.id,
-                        field_id: field.id,
-                    },
-                    rect,
-                );
+                let fref = FieldRef {
+                    node_id: node.id,
+                    field_id: field.id,
+                };
+                self.field_rects.insert(fref, rect);
+                live_refs.insert(fref);
                 y += field_h + 8;
             }
             let required_height = (y - node.position.y + 16).max(MIN_NODE_SIZE.height);
             if node.size.height < required_height {
                 node.size.height = required_height;
             }
+        }
+        // Prune cached widget instances for fields that have been removed.
+        self.field_widgets.retain(|fref, _| live_refs.contains(fref));
+        self.ensure_field_widgets();
+    }
+
+    /// Wave 1 (A3): create cached widget instances for any field that doesn't
+    /// have one yet, seeded from its current FieldValue. Called from
+    /// `update_field_rects()` so the cache stays in sync with the model.
+    fn ensure_field_widgets(&mut self) {
+        // Snapshot the (FieldRef, FieldKind, FieldValue) tuples so we don't
+        // hold a borrow on self.graph while mutating self.field_widgets.
+        let snapshot: Vec<(FieldRef, FieldKind, FieldValue)> = self
+            .graph
+            .nodes
+            .iter()
+            .flat_map(|n| {
+                n.fields.iter().map(move |f| {
+                    (
+                        FieldRef {
+                            node_id: n.id,
+                            field_id: f.id,
+                        },
+                        f.kind.clone(),
+                        f.value.clone(),
+                    )
+                })
+            })
+            .collect();
+        for (fref, kind, value) in snapshot {
+            if self.field_widgets.contains_key(&fref) {
+                // Sync existing entry from the current value (cheap idempotent).
+                self.sync_field_widget_from_value_inner(fref, &kind, &value);
+                continue;
+            }
+            let entry = match &kind {
+                FieldKind::Text => {
+                    let mut ti = TextInput::new(WidgetId::default());
+                    if let FieldValue::Text(s) = &value {
+                        ti.set_text(s.clone());
+                    }
+                    FieldWidgetEntry::Text(ti)
+                }
+                FieldKind::Number { min, max, .. } => {
+                    let initial = match &value {
+                        FieldValue::Number(n) => *n,
+                        _ => *min,
+                    };
+                    FieldWidgetEntry::Number(Slider::new(
+                        WidgetId::default(),
+                        *min,
+                        *max,
+                        initial,
+                    ))
+                }
+                FieldKind::Select { options } => {
+                    let mut cb = ComboBox::new(WidgetId::default()).with_items(options.clone());
+                    if let FieldValue::Select(s) = &value {
+                        if let Some(idx) = options.iter().position(|o| o == s) {
+                            cb.set_selected(Some(idx));
+                        }
+                    }
+                    FieldWidgetEntry::Select(cb)
+                }
+                FieldKind::Bool => {
+                    let checked = matches!(value, FieldValue::Bool(true));
+                    FieldWidgetEntry::Bool(
+                        Checkbox::new(WidgetId::default(), "").with_checked(checked),
+                    )
+                }
+                FieldKind::FilePath { .. } => FieldWidgetEntry::FilePath,
+            };
+            self.field_widgets.insert(fref, entry);
+        }
+    }
+
+    /// Compute the screen-space rect for a field's widget (after pan/zoom).
+    fn field_widget_screen_rect(&self, fref: FieldRef) -> Option<Rect> {
+        self.field_rects
+            .get(&fref)
+            .map(|world_rect| self.to_screen_rect(*world_rect))
+    }
+
+    /// Route a press event into the cached Slider. Lays the slider out at its
+    /// current screen-space rect, forwards the event, then syncs the new value
+    /// back into the FieldValue and starts a `FieldSliderDrag` interaction so
+    /// subsequent MouseMove events reach the slider.
+    fn route_press_to_slider(
+        &mut self,
+        fref: FieldRef,
+        ev: &MouseButtonEvent,
+        theme: &Theme,
+    ) {
+        let Some(rect) = self.field_widget_screen_rect(fref) else {
+            return;
+        };
+        let event = Event::MouseButton(ev.clone());
+        if let Some(FieldWidgetEntry::Number(slider)) = self.field_widgets.get_mut(&fref) {
+            slider.layout(rect, theme);
+            let _ = slider.handle_event(&event, theme);
+            // Slider may have set is_dragging via track-or-thumb hit; keep
+            // ourselves in drag mode either way so move events reach it.
+            let new_val = slider.value();
+            // Sync FieldValue.
+            self.set_field_number(fref, new_val);
+            self.interaction = Some(Interaction::FieldSliderDrag { fref });
+        }
+    }
+
+    /// Forward a MouseMove during a slider drag to the cached slider.
+    fn route_move_to_slider(&mut self, fref: FieldRef, screen_pos: Point, theme: &Theme) {
+        let Some(rect) = self.field_widget_screen_rect(fref) else {
+            return;
+        };
+        let event = Event::MouseMove(erigui_core::MouseMoveEvent {
+            position: screen_pos,
+            delta: Point::ZERO,
+            modifiers: Modifiers::empty(),
+        });
+        let mut new_val: Option<f32> = None;
+        if let Some(FieldWidgetEntry::Number(slider)) = self.field_widgets.get_mut(&fref) {
+            slider.layout(rect, theme);
+            let _ = slider.handle_event(&event, theme);
+            new_val = Some(slider.value());
+        }
+        if let Some(v) = new_val {
+            self.set_field_number(fref, v);
+        }
+    }
+
+    /// Forward a MouseButton release during a slider drag (just resets drag flag).
+    fn route_release_to_slider(&mut self, fref: FieldRef, ev: &MouseButtonEvent, theme: &Theme) {
+        let Some(rect) = self.field_widget_screen_rect(fref) else {
+            return;
+        };
+        let event = Event::MouseButton(ev.clone());
+        if let Some(FieldWidgetEntry::Number(slider)) = self.field_widgets.get_mut(&fref) {
+            slider.layout(rect, theme);
+            let _ = slider.handle_event(&event, theme);
+        }
+    }
+
+    fn set_field_number(&mut self, fref: FieldRef, v: f32) {
+        if let Some(field) = self.get_field_mut(fref) {
+            if let FieldKind::Number { min, max, .. } = &field.kind {
+                field.value = FieldValue::Number(v.clamp(*min, *max));
+            }
+        }
+        self.mark_dirty(fref.node_id);
+    }
+
+    /// Push the current FieldValue into the cached widget. Cheap idempotent.
+    fn sync_field_widget_from_value(&mut self, fref: FieldRef) {
+        let snap = self
+            .get_field(fref)
+            .map(|f| (f.kind.clone(), f.value.clone()));
+        if let Some((kind, value)) = snap {
+            self.sync_field_widget_from_value_inner(fref, &kind, &value);
+        }
+    }
+
+    fn sync_field_widget_from_value_inner(
+        &mut self,
+        fref: FieldRef,
+        kind: &FieldKind,
+        value: &FieldValue,
+    ) {
+        let Some(entry) = self.field_widgets.get_mut(&fref) else {
+            return;
+        };
+        match (entry, kind, value) {
+            (FieldWidgetEntry::Text(ti), FieldKind::Text, FieldValue::Text(s)) => {
+                if ti.text() != s.as_str() {
+                    ti.set_text(s.clone());
+                }
+            }
+            (FieldWidgetEntry::Number(slider), FieldKind::Number { .. }, FieldValue::Number(n)) => {
+                if (slider.value() - *n).abs() > f32::EPSILON {
+                    slider.set_value(*n);
+                }
+            }
+            (
+                FieldWidgetEntry::Select(cb),
+                FieldKind::Select { options },
+                FieldValue::Select(s),
+            ) => {
+                let want = options.iter().position(|o| o == s);
+                if cb.selected_index() != want {
+                    cb.set_selected(want);
+                }
+            }
+            (FieldWidgetEntry::Bool(c), FieldKind::Bool, FieldValue::Bool(b)) => {
+                if c.is_checked() != *b {
+                    c.set_checked(*b);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1088,10 +1491,26 @@ impl NodeGraph {
 
     fn remove_edges_for_port(&mut self, port: PortRef) -> bool {
         let before = self.graph.edges.len();
+        // Snapshot endpoints of the edges we're about to drop so we can
+        // mark both sides dirty.
+        let touched: Vec<(usize, usize)> = self
+            .graph
+            .edges
+            .iter()
+            .filter(|e| {
+                (e.from_node == port.node_id && e.from_port == port.port_id && !port.is_input)
+                    || (e.to_node == port.node_id && e.to_port == port.port_id && port.is_input)
+            })
+            .map(|e| (e.from_node, e.to_node))
+            .collect();
         self.graph.edges.retain(|e| {
             !((e.from_node == port.node_id && e.from_port == port.port_id && !port.is_input)
                 || (e.to_node == port.node_id && e.to_port == port.port_id && port.is_input))
         });
+        for (a, b) in touched {
+            self.mark_dirty(a);
+            self.mark_dirty(b);
+        }
         before != self.graph.edges.len()
     }
 
@@ -1100,11 +1519,25 @@ impl NodeGraph {
             return;
         }
         let before = self.graph.edges.len();
+        let touched: Vec<(usize, usize)> = self
+            .graph
+            .edges
+            .iter()
+            .filter(|e| {
+                self.selected_nodes.contains(&e.from_node)
+                    || self.selected_nodes.contains(&e.to_node)
+            })
+            .map(|e| (e.from_node, e.to_node))
+            .collect();
         self.graph.edges.retain(|e| {
             !self.selected_nodes.contains(&e.from_node) && !self.selected_nodes.contains(&e.to_node)
         });
         if before != self.graph.edges.len() {
             self.hovered_edge = None;
+            for (a, b) in touched {
+                self.mark_dirty(a);
+                self.mark_dirty(b);
+            }
         }
     }
 
@@ -1249,14 +1682,18 @@ impl NodeGraph {
             .iter()
             .flat_map(|node| {
                 node.fields.iter().filter_map(move |field| {
-                    if let (FieldKind::FilePath, FieldValue::Text(path)) =
-                        (&field.kind, &field.value)
-                    {
-                        if !path.is_empty() {
-                            return Some((node.id, path.clone()));
-                        }
+                    if !matches!(field.kind, FieldKind::FilePath { .. }) {
+                        return None;
                     }
-                    None
+                    let path: Option<String> = match &field.value {
+                        FieldValue::FilePath(p) if !p.as_os_str().is_empty() => {
+                            Some(p.display().to_string())
+                        }
+                        // Back-compat: legacy graphs stored FilePath as Text.
+                        FieldValue::Text(s) if !s.is_empty() => Some(s.clone()),
+                        _ => None,
+                    };
+                    path.map(|p| (node.id, p))
                 })
             })
             .collect();
@@ -1384,17 +1821,20 @@ impl NodeGraph {
         if let Some(fref) = self.active_field {
             let edit = self.field_edit.clone();
             if let Some(field) = self.get_field_mut(fref) {
-                match field.kind {
+                match &field.kind {
                     FieldKind::Text => field.value = FieldValue::Text(edit),
                     FieldKind::Number { min, max, .. } => {
                         if let Ok(v) = edit.trim().parse::<f32>() {
-                            field.value = FieldValue::Number(v.clamp(min, max));
+                            field.value = FieldValue::Number(v.clamp(*min, *max));
                         }
                     }
-                    FieldKind::Select { .. } => {}
-                    FieldKind::FilePath => field.value = FieldValue::Text(edit),
+                    FieldKind::Select { .. } | FieldKind::Bool => {}
+                    FieldKind::FilePath { .. } => {
+                        field.value = FieldValue::FilePath(PathBuf::from(edit));
+                    }
                 }
             }
+            self.mark_dirty(fref.node_id);
         }
         self.active_field = None;
     }
@@ -1474,12 +1914,22 @@ impl NodeGraph {
         if let Some(fref) = self.active_field {
             if let Some(field_snapshot) = self.get_field(fref).cloned() {
                 match field_snapshot.kind {
-                    FieldKind::Text | FieldKind::FilePath => {
+                    FieldKind::Text => {
                         self.field_edit.push_str(text);
                         let new_val = self.field_edit.clone();
                         if let Some(f) = self.get_field_mut(fref) {
                             f.value = FieldValue::Text(new_val);
                         }
+                        self.mark_dirty(fref.node_id);
+                        return true;
+                    }
+                    FieldKind::FilePath { .. } => {
+                        self.field_edit.push_str(text);
+                        let new_val = self.field_edit.clone();
+                        if let Some(f) = self.get_field_mut(fref) {
+                            f.value = FieldValue::FilePath(PathBuf::from(new_val));
+                        }
+                        self.mark_dirty(fref.node_id);
                         return true;
                     }
                     FieldKind::Number { min, max, .. } => {
@@ -1496,9 +1946,10 @@ impl NodeGraph {
                                 f.value = FieldValue::Number(v.clamp(min, max));
                             }
                         }
+                        self.mark_dirty(fref.node_id);
                         return true;
                     }
-                    FieldKind::Select { .. } => {}
+                    FieldKind::Select { .. } | FieldKind::Bool => {}
                 }
             }
         }
@@ -1571,11 +2022,12 @@ impl Widget for NodeGraph {
         if let Some(path_str) = file_selected {
             if let Some(fref) = self.pending_file_field {
                 if let Some(field) = self.get_field_mut(fref) {
-                    field.value = FieldValue::Text(path_str.clone());
+                    field.value = FieldValue::FilePath(PathBuf::from(&path_str));
                 }
                 if let Some(node_id) = self.pending_file_node {
                     self.refresh_preview_for(node_id, &path_str);
                 }
+                self.mark_dirty(fref.node_id);
                 self.pending_file_field = None;
                 self.pending_file_node = None;
             }
@@ -1606,6 +2058,9 @@ impl Widget for NodeGraph {
             Event::TextInput(te) => {
                 self.state.focused = true;
                 if self.apply_text_input(&te.text) {
+                    if let Some(active) = self.active_field {
+                        self.sync_field_widget_from_value(active);
+                    }
                     return EventResult::Consumed;
                 }
             }
@@ -1614,6 +2069,12 @@ impl Widget for NodeGraph {
                 let world_pos = self.screen_to_world(screen_pos);
                 let mut needs_hover_update = false;
                 let mut result = EventResult::Ignored;
+                // Slider drag: forward to the cached slider, then continue.
+                if let Some(Interaction::FieldSliderDrag { fref }) = self.interaction.clone() {
+                    self.route_move_to_slider(fref, screen_pos, theme);
+                    self.last_cursor_world = world_pos;
+                    return EventResult::Consumed;
+                }
                 if let Some(interaction) = self.interaction.as_mut() {
                     match interaction {
                         Interaction::NodeDrag {
@@ -1684,6 +2145,9 @@ impl Widget for NodeGraph {
                             needs_hover_update = false;
                             result = EventResult::Consumed;
                         }
+                        Interaction::FieldSliderDrag { .. } => {
+                            // Already handled by early-return above.
+                        }
                     }
                 } else {
                     needs_hover_update = true;
@@ -1717,10 +2181,14 @@ impl Widget for NodeGraph {
                                     row_h,
                                 );
                                 if item_rect.contains(ev.position) {
+                                    let node_id = overlay.field.node_id;
                                     if let Some(field) = self.get_field_mut(overlay.field) {
                                         field.value = FieldValue::Select(opt.clone());
                                     }
+                                    // Keep cached ComboBox in sync for downstream queries.
+                                    self.sync_field_widget_from_value(overlay.field);
                                     self.select_overlay = None;
+                                    self.mark_dirty(node_id);
                                     return EventResult::Consumed;
                                 }
                                 y += row_h + self.scale(2);
@@ -1736,6 +2204,15 @@ impl Widget for NodeGraph {
                 match ev.button {
                     MouseButton::Left => {
                         if ev.pressed {
+                            // Wave 3 (C4): any left-click while the add-node
+                            // menu is open closes it (the rendered menu would
+                            // otherwise own the click; until that landing,
+                            // close-on-outside-click here keeps the state
+                            // consistent with the test surface).
+                            if self.add_node_menu.is_some() {
+                                self.close_add_menu();
+                                return EventResult::Consumed;
+                            }
                             // field interaction first
                             if let Some(field_ref) = self.field_at_screen(ev.position) {
                                 if let Some(field_snapshot) = self
@@ -1773,7 +2250,7 @@ impl Widget for NodeGraph {
                                                 });
                                             }
                                         }
-                                        FieldKind::FilePath => {
+                                        FieldKind::FilePath { .. } => {
                                             self.pending_file_field = Some(field_ref);
                                             self.pending_file_node = Some(field_ref.node_id);
                                             let dlg = FileDialog::new(
@@ -1783,18 +2260,29 @@ impl Widget for NodeGraph {
                                             self.file_dialog = Some(dlg);
                                             self.layout_file_dialog(theme);
                                         }
-                                        FieldKind::Text | FieldKind::Number { .. } => {
-                                            let edit = match &field_snapshot.value {
-                                                FieldValue::Text(s) => s.clone(),
-                                                FieldValue::Number(n) => {
-                                                    if (n.fract() - 0.0).abs() < f32::EPSILON {
-                                                        format!("{:.0}", n)
-                                                    } else {
-                                                        format!("{:.2}", n)
-                                                    }
-                                                }
-                                                FieldValue::Select(s) => s.clone(),
+                                        FieldKind::Bool => {
+                                            // Toggle in-place; route to cached checkbox state.
+                                            let new_val = match &field_snapshot.value {
+                                                FieldValue::Bool(b) => !b,
+                                                _ => true,
                                             };
+                                            if let Some(f) = self.get_field_mut(field_ref) {
+                                                f.value = FieldValue::Bool(new_val);
+                                            }
+                                            if let Some(FieldWidgetEntry::Bool(cb)) =
+                                                self.field_widgets.get_mut(&field_ref)
+                                            {
+                                                cb.set_checked(new_val);
+                                            }
+                                            self.mark_dirty(field_ref.node_id);
+                                        }
+                                        FieldKind::Number { .. } => {
+                                            // Route the press to the cached slider so a
+                                            // press-then-drag updates the value live.
+                                            self.route_press_to_slider(field_ref, ev, theme);
+                                        }
+                                        FieldKind::Text => {
+                                            let edit = self.field_value_str(&field_snapshot);
                                             self.active_field = Some(field_ref);
                                             self.field_edit = edit;
                                             self.state.focused = true;
@@ -1883,6 +2371,8 @@ impl Widget for NodeGraph {
                                                             to_node: inp.node_id,
                                                             to_port: inp.port_id,
                                                         });
+                                                        self.mark_dirty(out.node_id);
+                                                        self.mark_dirty(inp.node_id);
                                                     }
                                                 }
                                             }
@@ -1896,6 +2386,10 @@ impl Widget for NodeGraph {
                                         let toggle = ev.modifiers.contains(Modifiers::SHIFT);
                                         let rect = rect_from_points(start_world, current_world);
                                         self.select_nodes_in_rect(rect, toggle);
+                                        consumed = true;
+                                    }
+                                    Interaction::FieldSliderDrag { fref } => {
+                                        self.route_release_to_slider(fref, ev, theme);
                                         consumed = true;
                                     }
                                     Interaction::Pan { .. } => {}
@@ -1916,17 +2410,23 @@ impl Widget for NodeGraph {
                             });
                         } else {
                             let mut consumed = false;
-                            if let Some(Interaction::Pan { last: _, moved }) = &self.interaction {
-                                if !*moved {
-                                    if let Some(port) = self.port_at_screen(ev.position) {
-                                        consumed = self.remove_edges_for_port(port);
-                                    } else if let Some(edge_idx) = self.nearest_edge_to_screen(
-                                        ev.position,
-                                        self.scale(12).clamp(8, 18),
-                                    ) {
-                                        self.graph.edges.remove(edge_idx);
-                                        consumed = true;
-                                    }
+                            // Snapshot whether the press was a click (no pan
+                            // drag) before we discard the Pan interaction —
+                            // we'll consult it for the Wave-3-C4 add-menu
+                            // open path even after the port/edge checks.
+                            let was_click = matches!(
+                                &self.interaction,
+                                Some(Interaction::Pan { moved: false, .. })
+                            );
+                            if was_click {
+                                if let Some(port) = self.port_at_screen(ev.position) {
+                                    consumed = self.remove_edges_for_port(port);
+                                } else if let Some(edge_idx) = self.nearest_edge_to_screen(
+                                    ev.position,
+                                    self.scale(12).clamp(8, 18),
+                                ) {
+                                    self.graph.edges.remove(edge_idx);
+                                    consumed = true;
                                 }
                             }
                             self.interaction = None;
@@ -1934,32 +2434,52 @@ impl Widget for NodeGraph {
                                 self.hovered_edge = None;
                                 return EventResult::Consumed;
                             }
+                            // Wave 3 (C4): if the click was on empty canvas
+                            // (no port, no edge, no node) and a registry is
+                            // wired, open the add-node menu at the world
+                            // position the user right-clicked.
+                            if was_click {
+                                let on_node = self.node_at(world_pos).is_some();
+                                let on_port = self.port_at_screen(ev.position).is_some();
+                                let on_edge = self
+                                    .nearest_edge_to_screen(
+                                        ev.position,
+                                        self.scale(12).clamp(8, 18),
+                                    )
+                                    .is_some();
+                                let on_handle = self.resize_handle_at(ev.position).is_some();
+                                if !on_node && !on_port && !on_edge && !on_handle {
+                                    if let Some(reg) = self.add_node_registry.clone() {
+                                        self.open_add_menu_at(world_pos, reg);
+                                        return EventResult::Consumed;
+                                    }
+                                }
+                            }
                         }
                     }
                     _ => {}
                 }
             }
             Event::KeyPress(key) => {
+                // Wave 3 (C4): Esc closes the add-node menu before any other
+                // KeyPress routing so it doesn't fall through into field-edit
+                // commit-or-cancel logic below.
+                if self.add_node_menu.is_some() && key.key == erigui_core::Key::Escape {
+                    self.close_add_menu();
+                    return EventResult::Consumed;
+                }
                 // If no active field but we're hovering a text field, start editing on first keypress.
                 if self.active_field.is_none() {
                     if let Some(hov) = self.hovered_field {
                         if let Some(f_snapshot) = self.get_field(hov).cloned() {
                             if matches!(
                                 f_snapshot.kind,
-                                FieldKind::Text | FieldKind::FilePath | FieldKind::Number { .. }
+                                FieldKind::Text
+                                    | FieldKind::FilePath { .. }
+                                    | FieldKind::Number { .. }
                             ) {
                                 self.active_field = Some(hov);
-                                self.field_edit = match &f_snapshot.value {
-                                    FieldValue::Text(s) => s.clone(),
-                                    FieldValue::Number(n) => {
-                                        if (n.fract() - 0.0).abs() < f32::EPSILON {
-                                            format!("{:.0}", n)
-                                        } else {
-                                            format!("{:.2}", n)
-                                        }
-                                    }
-                                    FieldValue::Select(s) => s.clone(),
-                                };
+                                self.field_edit = self.field_value_str(&f_snapshot);
                             }
                         }
                     }
@@ -1971,18 +2491,23 @@ impl Widget for NodeGraph {
                             self.field_edit.pop();
                             let edit = self.field_edit.clone();
                             if let Some(field) = self.get_field_mut(active) {
-                                match field.kind {
-                                    FieldKind::Text | FieldKind::FilePath => {
+                                match &field.kind {
+                                    FieldKind::Text => {
                                         field.value = FieldValue::Text(edit);
+                                    }
+                                    FieldKind::FilePath { .. } => {
+                                        field.value = FieldValue::FilePath(PathBuf::from(edit));
                                     }
                                     FieldKind::Number { min, max, .. } => {
                                         if let Ok(v) = edit.trim().parse::<f32>() {
-                                            field.value = FieldValue::Number(v.clamp(min, max));
+                                            field.value =
+                                                FieldValue::Number(v.clamp(*min, *max));
                                         }
                                     }
                                     _ => {}
                                 }
                             }
+                            self.mark_dirty(active.node_id);
                             return EventResult::Consumed;
                         }
                         erigui_core::Key::Enter => {
@@ -1993,7 +2518,20 @@ impl Widget for NodeGraph {
                             self.active_field = None;
                             return EventResult::Consumed;
                         }
-                        _ => return EventResult::Ignored,
+                        _ => {
+                            // Wave 1 (A3): translate printable KeyPress events into
+                            // character input on the active field. The host normally
+                            // sends Event::TextInput for typed characters, but tests
+                            // and some headless drivers fire only KeyPress events.
+                            if let Some(ch) = Self::keypress_to_char(key) {
+                                let s = ch.to_string();
+                                if self.apply_text_input(&s) {
+                                    self.sync_field_widget_from_value(active);
+                                    return EventResult::Consumed;
+                                }
+                            }
+                            return EventResult::Ignored;
+                        }
                     }
                 }
                 match key.key {
@@ -2004,7 +2542,9 @@ impl Widget for NodeGraph {
                         }
                         if let Some(edge_idx) = self.hovered_edge {
                             if edge_idx < self.graph.edges.len() {
-                                self.graph.edges.remove(edge_idx);
+                                let e = self.graph.edges.remove(edge_idx);
+                                self.mark_dirty(e.from_node);
+                                self.mark_dirty(e.to_node);
                                 removed = true;
                             }
                         }

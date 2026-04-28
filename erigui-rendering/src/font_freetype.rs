@@ -258,3 +258,107 @@ impl Drop for FontRenderer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! These tests exercise CPU-only paths through FreeType (`FontRenderer::new`,
+    //! `measure_text`, `load_font`). They do NOT call into OpenGL, so they run
+    //! safely on a headless host. The `Drop` impl will iterate an empty
+    //! glyph_cache (no GL calls).
+    use super::*;
+
+    #[test]
+    fn new_succeeds_with_default_font() {
+        let r = FontRenderer::new();
+        assert!(r.is_ok(), "FontRenderer::new should succeed with embedded font");
+    }
+
+    #[test]
+    fn measure_empty_string_has_zero_width() {
+        let r = FontRenderer::new().expect("init");
+        let s = r.measure_text("", 16);
+        assert_eq!(s.width, 0);
+        // Height: when no glyphs are loaded, max_height stays 0 and is bumped
+        // to `size`, so the line height matches the requested size.
+        assert_eq!(s.height, 16);
+    }
+
+    #[test]
+    fn measure_single_char_has_positive_width() {
+        let r = FontRenderer::new().expect("init");
+        let s = r.measure_text("M", 16);
+        assert!(s.width > 0, "expected positive width, got {}", s.width);
+        assert!(s.height > 0);
+    }
+
+    #[test]
+    fn measure_longer_string_is_wider_than_single_char() {
+        let r = FontRenderer::new().expect("init");
+        let one = r.measure_text("M", 16);
+        let many = r.measure_text("MMMMM", 16);
+        assert!(
+            many.width > one.width,
+            "5 chars ({}) should be wider than 1 char ({})",
+            many.width,
+            one.width
+        );
+    }
+
+    #[test]
+    fn measure_height_at_least_size() {
+        // measure_text returns max(measured_glyph_height, size).
+        let r = FontRenderer::new().expect("init");
+        let s = r.measure_text("Hello", 32);
+        assert!(s.height >= 32, "height {} should be >= size 32", s.height);
+    }
+
+    #[test]
+    fn measure_larger_size_is_wider_than_smaller() {
+        let r = FontRenderer::new().expect("init");
+        let small = r.measure_text("Hello", 12);
+        let large = r.measure_text("Hello", 48);
+        assert!(
+            large.width > small.width,
+            "48px ({}) should be wider than 12px ({})",
+            large.width,
+            small.width
+        );
+        assert!(large.height >= small.height);
+    }
+
+    #[test]
+    fn load_font_with_embedded_data_succeeds() {
+        let mut r = FontRenderer::new().expect("init");
+        let result = r.load_font(DEFAULT_FONT_DATA);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn load_font_clears_glyph_cache_state() {
+        // Indirect: after a load_font call we should still be able to measure text.
+        let mut r = FontRenderer::new().expect("init");
+        let before = r.measure_text("Hi", 14);
+        r.load_font(DEFAULT_FONT_DATA).expect("reload");
+        let after = r.measure_text("Hi", 14);
+        // Reloaded the same font ⇒ measurement should be identical.
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn measure_handles_unicode_without_panicking() {
+        let r = FontRenderer::new().expect("init");
+        // Many of these may not be in the JetBrains Mono coverage; the function
+        // should still return a non-negative size and not panic.
+        let s = r.measure_text("héllo·世界", 16);
+        assert!(s.width >= 0);
+        assert!(s.height > 0);
+    }
+
+    #[test]
+    fn measure_with_size_one_does_not_panic() {
+        let r = FontRenderer::new().expect("init");
+        let s = r.measure_text("a", 1);
+        // Even at the smallest pixel size, the function should return cleanly.
+        assert!(s.height >= 1);
+    }
+}

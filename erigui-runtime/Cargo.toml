@@ -1,0 +1,26 @@
+[package]
+name = "erigui-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+# Wave 3 / C1 — Executor, content-hash cache, worker thread, ProgressEvent channel.
+# Pure CPU. Calls NodeType::execute() (which itself may use the GPU on real
+# nodes), but contains no GPU code, no inference-flame import, no flame-core
+# import beyond what `erigui-nodes` re-exports.
+
+[dependencies]
+erigui-nodes = { path = "../erigui-nodes" }
+erigui-widgets = { path = "../erigui-widgets" }
+# `flame-core` is a transitive dep through erigui-nodes; pulled in directly so
+# we can name `flame_core::Tensor` in our `ProgressSink` impl. Same feature
+# set as erigui-nodes (kept identical to keep the unified-feature graph valid).
+flame-core = { path = "../../../EriDiffusion/flame-core", default-features = false, features = ["cuda", "bf16_u16", "cudnn", "shared_storage"] }
+thiserror = { workspace = true }
+sha2 = "0.10"
+
+[dev-dependencies]
+# erigui-core is needed by tests to construct `Point`/`Size` values when
+# building fake `Node`s for the worker. Not required by the runtime itself.
+erigui-core = { path = "../erigui-core" }

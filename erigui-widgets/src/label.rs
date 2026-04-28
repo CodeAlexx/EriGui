@@ -76,7 +76,7 @@ impl Widget for Label {
             return;
         }
 
-        let color = self.color.unwrap_or_else(|| {
+        let color = self.color.unwrap_or({
             if self.state.enabled {
                 theme.colors.text
             } else {

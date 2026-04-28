@@ -168,23 +168,20 @@ impl Widget for ListView {
             return EventResult::Ignored;
         }
 
-        match event {
-            Event::MouseButton(MouseButtonEvent {
+        if let Event::MouseButton(MouseButtonEvent {
                 button: MouseButton::Left,
                 position,
                 pressed: true,
                 ..
-            }) => {
-                if let Some(index) = self.item_at_position(*position) {
-                    if self.multi_select {
-                        self.items[index].selected = !self.items[index].selected;
-                    } else {
-                        self.set_selected_index(Some(index));
-                    }
-                    return EventResult::Consumed;
+            }) = event {
+            if let Some(index) = self.item_at_position(*position) {
+                if self.multi_select {
+                    self.items[index].selected = !self.items[index].selected;
+                } else {
+                    self.set_selected_index(Some(index));
                 }
+                return EventResult::Consumed;
             }
-            _ => {}
         }
 
         EventResult::Ignored

@@ -1222,7 +1222,7 @@ fn main() -> anyhow::Result<()> {
     let (backend_tx, backend_rx) = mpsc::channel();
     request_backend_components(backend_tx.clone());
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut renderer = Renderer::new(&event_loop, 1600, 900, "EriGui - Workflow Designer")?;
     let theme = Theme::alex_jammin();
     let mut app = App::new(theme.clone(), backend_tx.clone());
@@ -1232,20 +1232,20 @@ fn main() -> anyhow::Result<()> {
     app.layout(Size::new(viewport.width, viewport.height));
 
     let backend_sender = backend_tx.clone();
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Poll);
         while let Ok(msg) = backend_rx.try_recv() {
             app.handle_backend_message(msg);
         }
         match event {
             WinitEvent::WindowEvent { event, .. } => {
                 if let WindowEvent::CloseRequested = event {
-                    *control_flow = ControlFlow::Exit;
+                    elwt.exit();
                     return;
                 }
-                if let WindowEvent::KeyboardInput { input, .. } = event {
+                if let WindowEvent::KeyboardInput { event: ref input, .. } = event {
                     if input.state == winit::event::ElementState::Pressed
-                        && input.virtual_keycode == Some(winit::event::VirtualKeyCode::F2)
+                        && input.physical_key == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F2)
                     {
                         request_backend_components(backend_sender.clone());
                     }
@@ -1262,7 +1262,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            WinitEvent::MainEventsCleared | WinitEvent::RedrawRequested(_) => {
+            WinitEvent::AboutToWait | WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 let size = renderer.viewport_size();
                 app.layout(Size::new(size.width, size.height));
                 app.sync_inspector();
@@ -1273,7 +1273,8 @@ fn main() -> anyhow::Result<()> {
             }
             _ => {}
         }
-    })
+    }).unwrap();
+    Ok(())
 }
 
 fn fetch_backend_components() -> anyhow::Result<Vec<ApiComponentInfo>> {

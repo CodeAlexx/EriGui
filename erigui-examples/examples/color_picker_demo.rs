@@ -73,7 +73,7 @@ impl ColorPickerDemo {
 }
 
 fn main() {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
 
     let mut renderer = Renderer::new(&event_loop, 800, 600, "Color Picker Demo")
         .expect("Failed to create renderer");
@@ -83,14 +83,14 @@ fn main() {
     let mut demo = ColorPickerDemo::new();
     demo.update_preview();
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+    event_loop.run(move |event, elwt| {
+        elwt.set_control_flow(ControlFlow::Wait);
 
         match event {
             WinitEvent::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
+                        elwt.exit();
                     }
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
@@ -111,7 +111,7 @@ fn main() {
                 }
             }
 
-            WinitEvent::RedrawRequested(_) => {
+            WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 // Layout
                 let window_size = renderer.viewport_size();
                 let padding = 20;
@@ -267,5 +267,5 @@ fn main() {
 
             _ => {}
         }
-    });
+    }).unwrap();
 }

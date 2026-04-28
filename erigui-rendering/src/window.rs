@@ -3,8 +3,9 @@ use erigui_core::{
     MouseButtonEvent, MouseMoveEvent, MouseWheelEvent, Point, ResizeEvent, Size, TextInputEvent,
 };
 use winit::event::{
-    ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
+    ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent,
 };
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 
 /// Simple helper that tracks cursor/modifier state and converts winit events to EriGui events.
 #[derive(Debug, Clone)]
@@ -53,6 +54,9 @@ impl EventTranslator {
                     WinitMouseButton::Left => MouseButton::Left,
                     WinitMouseButton::Right => MouseButton::Right,
                     WinitMouseButton::Middle => MouseButton::Middle,
+                    // winit 0.29 introduced Back/Forward variants explicitly.
+                    WinitMouseButton::Back => MouseButton::Extra1,
+                    WinitMouseButton::Forward => MouseButton::Extra2,
                     WinitMouseButton::Other(4) => MouseButton::Extra1,
                     WinitMouseButton::Other(5) => MouseButton::Extra2,
                     _ => return None,
@@ -75,26 +79,43 @@ impl EventTranslator {
                     modifiers: self.last_mods,
                 }))
             }
-            WindowEvent::KeyboardInput { input, .. } => {
-                let key = input
-                    .virtual_keycode
-                    .map(map_key)
-                    .unwrap_or(Key::Unknown(0));
-                match input.state {
-                    ElementState::Pressed => Some(Event::KeyPress(KeyPressEvent {
-                        key,
-                        modifiers: self.last_mods,
-                        repeat: false,
-                    })),
+            WindowEvent::KeyboardInput { event, .. } => {
+                // winit 0.29: KeyboardInput now carries a KeyEvent. Use physical_key for
+                // mapping (layout-independent) and event.text for character input
+                // (replaces the removed WindowEvent::ReceivedCharacter).
+                let key = match event.physical_key {
+                    PhysicalKey::Code(code) => map_key(code),
+                    PhysicalKey::Unidentified(_) => Key::Unknown(0),
+                };
+                match event.state {
+                    ElementState::Pressed => {
+                        // Emit text input alongside the keypress when the key produced a
+                        // character. This keeps the behaviour of pre-0.29 ReceivedCharacter
+                        // events without a separate event variant.
+                        if let Some(text) = event.text.as_ref() {
+                            // Some "text" payloads are control characters (e.g. \x08 backspace,
+                            // \r enter, \x1b esc). Filter those out so widgets only see real
+                            // typed characters.
+                            let filtered: String = text
+                                .chars()
+                                .filter(|c| !c.is_control())
+                                .collect();
+                            if !filtered.is_empty() {
+                                return Some(Event::TextInput(TextInputEvent { text: filtered }));
+                            }
+                        }
+                        Some(Event::KeyPress(KeyPressEvent {
+                            key,
+                            modifiers: self.last_mods,
+                            repeat: event.repeat,
+                        }))
+                    }
                     ElementState::Released => Some(Event::KeyRelease(KeyReleaseEvent {
                         key,
                         modifiers: self.last_mods,
                     })),
                 }
             }
-            WindowEvent::ReceivedCharacter(ch) => Some(Event::TextInput(TextInputEvent {
-                text: ch.to_string(),
-            })),
             WindowEvent::Resized(physical_size) => {
                 let new_size = Size::new(physical_size.width as i32, physical_size.height as i32);
                 let old = self.window_size;
@@ -105,7 +126,8 @@ impl EventTranslator {
                 }))
             }
             WindowEvent::ModifiersChanged(mods) => {
-                self.last_mods = map_mods(*mods);
+                // winit 0.29 wraps state in a Modifiers struct. Pull out the bitflag state.
+                self.last_mods = map_mods(mods.state());
                 None
             }
             WindowEvent::HoveredFile(path) => {
@@ -136,84 +158,86 @@ impl EventTranslator {
     }
 }
 
-fn map_mods(mods: winit::event::ModifiersState) -> Modifiers {
+fn map_mods(mods: ModifiersState) -> Modifiers {
     let mut out = Modifiers::empty();
-    if mods.shift() {
+    if mods.shift_key() {
         out |= Modifiers::SHIFT;
     }
-    if mods.ctrl() {
+    if mods.control_key() {
         out |= Modifiers::CTRL;
     }
-    if mods.alt() {
+    if mods.alt_key() {
         out |= Modifiers::ALT;
     }
-    if mods.logo() {
+    if mods.super_key() {
         out |= Modifiers::SUPER;
     }
     out
 }
 
-fn map_key(key: VirtualKeyCode) -> Key {
-    use VirtualKeyCode as V;
+fn map_key(key: KeyCode) -> Key {
+    use KeyCode as V;
     match key {
-        V::A => Key::A,
-        V::B => Key::B,
-        V::C => Key::C,
-        V::D => Key::D,
-        V::E => Key::E,
-        V::F => Key::F,
-        V::G => Key::G,
-        V::H => Key::H,
-        V::I => Key::I,
-        V::J => Key::J,
-        V::K => Key::K,
-        V::L => Key::L,
-        V::M => Key::M,
-        V::N => Key::N,
-        V::O => Key::O,
-        V::P => Key::P,
-        V::Q => Key::Q,
-        V::R => Key::R,
-        V::S => Key::S,
-        V::T => Key::T,
-        V::U => Key::U,
-        V::V => Key::V,
-        V::W => Key::W,
-        V::X => Key::X,
-        V::Y => Key::Y,
-        V::Z => Key::Z,
-        V::Key0 => Key::Num0,
-        V::Key1 => Key::Num1,
-        V::Key2 => Key::Num2,
-        V::Key3 => Key::Num3,
-        V::Key4 => Key::Num4,
-        V::Key5 => Key::Num5,
-        V::Key6 => Key::Num6,
-        V::Key7 => Key::Num7,
-        V::Key8 => Key::Num8,
-        V::Key9 => Key::Num9,
+        V::KeyA => Key::A,
+        V::KeyB => Key::B,
+        V::KeyC => Key::C,
+        V::KeyD => Key::D,
+        V::KeyE => Key::E,
+        V::KeyF => Key::F,
+        V::KeyG => Key::G,
+        V::KeyH => Key::H,
+        V::KeyI => Key::I,
+        V::KeyJ => Key::J,
+        V::KeyK => Key::K,
+        V::KeyL => Key::L,
+        V::KeyM => Key::M,
+        V::KeyN => Key::N,
+        V::KeyO => Key::O,
+        V::KeyP => Key::P,
+        V::KeyQ => Key::Q,
+        V::KeyR => Key::R,
+        V::KeyS => Key::S,
+        V::KeyT => Key::T,
+        V::KeyU => Key::U,
+        V::KeyV => Key::V,
+        V::KeyW => Key::W,
+        V::KeyX => Key::X,
+        V::KeyY => Key::Y,
+        V::KeyZ => Key::Z,
+        V::Digit0 => Key::Num0,
+        V::Digit1 => Key::Num1,
+        V::Digit2 => Key::Num2,
+        V::Digit3 => Key::Num3,
+        V::Digit4 => Key::Num4,
+        V::Digit5 => Key::Num5,
+        V::Digit6 => Key::Num6,
+        V::Digit7 => Key::Num7,
+        V::Digit8 => Key::Num8,
+        V::Digit9 => Key::Num9,
         V::Space => Key::Space,
-        V::Return => Key::Enter,
+        V::Enter => Key::Enter,
         V::Tab => Key::Tab,
         V::Escape => Key::Escape,
-        V::Back => Key::Backspace,
+        V::Backspace => Key::Backspace,
         V::Delete => Key::Delete,
         V::Home => Key::Home,
         V::End => Key::End,
         V::PageUp => Key::PageUp,
         V::PageDown => Key::PageDown,
-        V::Up => Key::Up,
-        V::Down => Key::Down,
-        V::Left => Key::Left,
-        V::Right => Key::Right,
-        V::LShift => Key::LeftShift,
-        V::RShift => Key::RightShift,
-        V::LControl => Key::LeftCtrl,
-        V::RControl => Key::RightCtrl,
-        V::LAlt => Key::LeftAlt,
-        V::RAlt => Key::RightAlt,
-        V::LWin | V::RWin => Key::LeftSuper,
-        _ => Key::Unknown(key as u32),
+        V::ArrowUp => Key::Up,
+        V::ArrowDown => Key::Down,
+        V::ArrowLeft => Key::Left,
+        V::ArrowRight => Key::Right,
+        V::ShiftLeft => Key::LeftShift,
+        V::ShiftRight => Key::RightShift,
+        V::ControlLeft => Key::LeftCtrl,
+        V::ControlRight => Key::RightCtrl,
+        V::AltLeft => Key::LeftAlt,
+        V::AltRight => Key::RightAlt,
+        V::SuperLeft | V::SuperRight => Key::LeftSuper,
+        // We can't expose the discriminant in a stable u32; use the Debug repr length as
+        // a tiny fingerprint so unmapped keys still get unique-ish IDs for debugging.
+        _ => Key::Unknown(0),
     }
 }
 

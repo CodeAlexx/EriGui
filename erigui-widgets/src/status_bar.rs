@@ -135,7 +135,7 @@ impl StatusBar {
         let available_for_springs =
             (total_width - fixed_width - (panel_count as i32 - 1) * 2).max(0);
         let spring_width = if spring_count > 0 {
-            available_for_springs / spring_count as i32
+            available_for_springs / spring_count
         } else {
             0
         };

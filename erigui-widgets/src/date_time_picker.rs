@@ -672,19 +672,17 @@ impl DateTimePicker {
         let final_hour = match self.time_format {
             TimeFormat::H24 => hour.min(23),
             TimeFormat::H12 => {
-                let h = hour.min(12).max(1);
+                let h = hour.clamp(1, 12);
                 if h == 12 {
                     if self.am_pm_selected {
                         12
                     } else {
                         0
                     }
+                } else if self.am_pm_selected {
+                    h + 12
                 } else {
-                    if self.am_pm_selected {
-                        h + 12
-                    } else {
-                        h
-                    }
+                    h
                 }
             }
         };
@@ -827,18 +825,16 @@ impl Widget for DateTimePicker {
                 }
 
                 // Check calendar click
-                if self.show_calendar && self.calendar_rect.contains(*position) {
-                    if self.handle_calendar_click(*position) {
+                if self.show_calendar && self.calendar_rect.contains(*position)
+                    && self.handle_calendar_click(*position) {
                         return EventResult::Consumed;
                     }
-                }
 
                 // Check time picker click
-                if self.show_time_picker && self.time_picker_rect.contains(*position) {
-                    if self.handle_time_picker_click(*position) {
+                if self.show_time_picker && self.time_picker_rect.contains(*position)
+                    && self.handle_time_picker_click(*position) {
                         return EventResult::Consumed;
                     }
-                }
 
                 // Click outside popups closes them
                 if !self.state.bounds.contains(*position)
@@ -891,12 +887,11 @@ impl Widget for DateTimePicker {
                                     self.hour_input.push(*ch);
                                     self.update_time_from_inputs();
                                 }
-                            } else if self.editing_minute {
-                                if self.minute_input.len() < 2 {
+                            } else if self.editing_minute
+                                && self.minute_input.len() < 2 {
                                     self.minute_input.push(*ch);
                                     self.update_time_from_inputs();
                                 }
-                            }
                             return EventResult::Consumed;
                         }
                         Key::Backspace => {

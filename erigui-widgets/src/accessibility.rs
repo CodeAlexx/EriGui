@@ -32,6 +32,7 @@ pub enum AccessibilityRole {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct AccessibilityState {
     pub checked: Option<bool>,
     pub selected: Option<bool>,
@@ -48,25 +49,6 @@ pub struct AccessibilityState {
     pub item_index: Option<i32>,
 }
 
-impl Default for AccessibilityState {
-    fn default() -> Self {
-        Self {
-            checked: None,
-            selected: None,
-            expanded: None,
-            disabled: None,
-            focused: None,
-            pressed: None,
-            value: None,
-            min_value: None,
-            max_value: None,
-            current_value: None,
-            level: None,
-            item_count: None,
-            item_index: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct AccessibilityNode {
@@ -98,6 +80,12 @@ pub struct AccessibilityManager {
     nodes: HashMap<WidgetId, AccessibilityNode>,
     focus_id: Option<WidgetId>,
     announcements: Vec<String>,
+}
+
+impl Default for AccessibilityManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AccessibilityManager {

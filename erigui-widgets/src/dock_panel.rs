@@ -85,21 +85,6 @@ pub struct FloatingWindow {
     dragging: bool,
     drag_offset: Point,
     resizing: bool,
-    _resize_edge: ResizeEdge,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)]
-enum ResizeEdge {
-    None,
-    Left,
-    Right,
-    Top,
-    Bottom,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
 }
 
 /// Path to a split node in the dock tree, used for safe splitter ratio updates
@@ -127,9 +112,7 @@ pub struct DockPanel {
     floating_windows: Vec<FloatingWindow>,
 
     // Drag state
-    _dragging_panel: Option<String>,
     drag_preview_rect: Option<Rect>,
-    _drop_target: Option<DropTarget>,
 
     // Splitter state - now uses safe path-based navigation instead of raw pointers
     active_splitter: Option<usize>,
@@ -145,14 +128,6 @@ pub struct DockPanel {
     on_layout_change: Option<LayoutChangeCallback>,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct DropTarget {
-    rect: Rect,
-    position: DockPosition,
-    target_node: *mut DockNode,
-}
-
 impl DockPanel {
     pub fn new(id: WidgetId) -> Self {
         Self {
@@ -160,9 +135,7 @@ impl DockPanel {
             panels: HashMap::new(),
             root_node: DockNode::Empty,
             floating_windows: Vec::new(),
-            _dragging_panel: None,
             drag_preview_rect: None,
-            _drop_target: None,
             active_splitter: None,
             splitter_rects: Vec::new(),
             splitter_size: 4,
@@ -196,7 +169,6 @@ impl DockPanel {
                     dragging: false,
                     drag_offset: Point::ZERO,
                     resizing: false,
-                    _resize_edge: ResizeEdge::None,
                 };
                 self.floating_windows.push(window);
             }
@@ -564,12 +536,6 @@ impl DockPanel {
         }
     }
 
-    #[allow(dead_code)]
-    fn get_drop_target(&self, _position: Point) -> Option<DropTarget> {
-        // TODO: Calculate drop targets based on mouse position
-        None
-    }
-
     fn draw_drop_preview(&self, context: &mut dyn DrawContext, theme: &Theme) {
         if let Some(rect) = &self.drag_preview_rect {
             context.set_color(theme.colors.primary.with_alpha(64));
@@ -818,7 +784,7 @@ impl Widget for DockPanel {
     }
 
     fn can_focus(&self) -> bool {
-        false
+        self.state.enabled && self.state.visible
     }
 
     fn as_any(&self) -> &dyn Any {

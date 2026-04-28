@@ -1258,6 +1258,54 @@ fn accordion_arrows_ignored_when_unfocused() {
 }
 
 // ============================================================================
+// DockPanel focus rectification (Mojo-port cleanup, 2026-04-28)
+// Previously: can_focus() returned false despite splitters/tabs being
+// interactive — focus state on WidgetState was unreachable.
+// ============================================================================
+
+use erigui_widgets::{DockPanel, DockPosition, DockablePanel};
+
+#[test]
+fn dock_panel_focus_round_trips() {
+    let mut dp = DockPanel::new(test_id());
+    let inner: Box<dyn Widget> = Box::new(Label::new(test_id(), "x"));
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", inner),
+        DockPosition::Center,
+    );
+    assert!(
+        dp.can_focus(),
+        "enabled+visible DockPanel should be focusable"
+    );
+    assert!(!dp.is_focused(), "starts unfocused");
+    dp.set_focused(true);
+    assert!(dp.is_focused(), "set_focused(true) sticks");
+    dp.set_focused(false);
+    assert!(!dp.is_focused(), "set_focused(false) sticks");
+}
+
+#[test]
+fn dock_panel_can_focus_respects_disabled() {
+    let mut dp = DockPanel::new(test_id());
+    let inner: Box<dyn Widget> = Box::new(Label::new(test_id(), "x"));
+    dp.add_panel(
+        DockablePanel::new("p0", "Panel 0", inner),
+        DockPosition::Center,
+    );
+    dp.set_enabled(false);
+    assert!(
+        !dp.can_focus(),
+        "disabled DockPanel must not advertise focus"
+    );
+    dp.set_enabled(true);
+    dp.set_visible(false);
+    assert!(
+        !dp.can_focus(),
+        "invisible DockPanel must not advertise focus"
+    );
+}
+
+// ============================================================================
 // MenuBar focus rectification (Mojo-port cleanup, 2026-04-28)
 // Previously: is_focused returned hardcoded false, set_focused was a no-op,
 // can_focus returned true — contradictory tri-state. Hosts couldn't direct

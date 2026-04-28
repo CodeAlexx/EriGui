@@ -250,6 +250,40 @@ impl Theme {
         // TODO: Detect system theme
         Self::light()
     }
+
+    /// Scale all pixel-valued fields by `scale` (typography font sizes,
+    /// spacing, borders). For HiDPI: pass the monitor's `scale_factor`.
+    /// Leaves color/font_family/line_height/letter_spacing untouched.
+    /// `scale <= 0.0` is treated as `1.0`.
+    pub fn with_scale(mut self, scale: f32) -> Self {
+        let s = if scale > 0.0 { scale } else { 1.0 };
+        if (s - 1.0).abs() < f32::EPSILON {
+            return self;
+        }
+        let scale_i = |v: i32| -> i32 { ((v as f32) * s).round() as i32 };
+        let scale_m = |m: Margins| -> Margins {
+            Margins::new(scale_i(m.top), scale_i(m.right), scale_i(m.bottom), scale_i(m.left))
+        };
+
+        self.typography.font_size_base = scale_i(self.typography.font_size_base);
+        self.typography.font_size_small = scale_i(self.typography.font_size_small);
+        self.typography.font_size_large = scale_i(self.typography.font_size_large);
+        self.typography.font_size_xlarge = scale_i(self.typography.font_size_xlarge);
+
+        self.spacing.base = scale_i(self.spacing.base);
+        self.spacing.gap_small = scale_i(self.spacing.gap_small);
+        self.spacing.gap_medium = scale_i(self.spacing.gap_medium);
+        self.spacing.gap_large = scale_i(self.spacing.gap_large);
+        self.spacing.margins = scale_m(self.spacing.margins);
+        self.spacing.padding = scale_m(self.spacing.padding);
+
+        self.borders.width = scale_i(self.borders.width).max(1);
+        self.borders.radius = scale_i(self.borders.radius);
+        self.borders.radius_small = scale_i(self.borders.radius_small);
+        self.borders.radius_large = scale_i(self.borders.radius_large);
+
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -436,5 +470,84 @@ mod tests {
         t.name = "Extra".to_string();
         m.add_theme(t);
         assert_eq!(m.list_themes().len(), 4);
+    }
+
+    // ----- with_scale (HiDPI) -----
+
+    #[test]
+    fn with_scale_one_is_identity() {
+        let t = Theme::dark();
+        let s = Theme::dark().with_scale(1.0);
+        assert_eq!(s.typography.font_size_base, t.typography.font_size_base);
+        assert_eq!(s.spacing.base, t.spacing.base);
+        assert_eq!(s.borders.width, t.borders.width);
+        assert_eq!(s.borders.radius, t.borders.radius);
+    }
+
+    #[test]
+    fn with_scale_two_doubles_typography() {
+        let s = Theme::dark().with_scale(2.0);
+        assert_eq!(s.typography.font_size_base, 28); // 14 * 2
+        assert_eq!(s.typography.font_size_small, 24); // 12 * 2
+        assert_eq!(s.typography.font_size_large, 32); // 16 * 2
+        assert_eq!(s.typography.font_size_xlarge, 40); // 20 * 2 (light/dark have 20)
+    }
+
+    #[test]
+    fn with_scale_two_doubles_spacing() {
+        let s = Theme::dark().with_scale(2.0);
+        assert_eq!(s.spacing.base, 16); // 8 * 2
+        assert_eq!(s.spacing.gap_small, 8); // 4 * 2
+        assert_eq!(s.spacing.gap_medium, 16); // 8 * 2
+        assert_eq!(s.spacing.gap_large, 32); // 16 * 2
+        assert_eq!(s.spacing.padding.top, 16); // 8 * 2
+        assert_eq!(s.spacing.margins.left, 16); // 8 * 2
+    }
+
+    #[test]
+    fn with_scale_two_doubles_borders() {
+        let s = Theme::dark().with_scale(2.0);
+        assert_eq!(s.borders.width, 2); // 1 * 2
+        assert_eq!(s.borders.radius_small, 4); // 2 * 2
+        assert_eq!(s.borders.radius, 8); // 4 * 2
+        assert_eq!(s.borders.radius_large, 16); // 8 * 2
+    }
+
+    #[test]
+    fn with_scale_preserves_colors_and_family() {
+        let t = Theme::dark();
+        let s = Theme::dark().with_scale(2.0);
+        assert_eq!(s.colors.background, t.colors.background);
+        assert_eq!(s.colors.text, t.colors.text);
+        assert_eq!(s.typography.font_family, t.typography.font_family);
+        assert_eq!(s.typography.line_height, t.typography.line_height);
+        assert_eq!(s.typography.letter_spacing, t.typography.letter_spacing);
+    }
+
+    #[test]
+    fn with_scale_zero_or_negative_is_treated_as_one() {
+        let t = Theme::dark();
+        let s_zero = Theme::dark().with_scale(0.0);
+        let s_neg = Theme::dark().with_scale(-1.5);
+        assert_eq!(s_zero.typography.font_size_base, t.typography.font_size_base);
+        assert_eq!(s_neg.typography.font_size_base, t.typography.font_size_base);
+    }
+
+    #[test]
+    fn with_scale_one_point_five_rounds_correctly() {
+        let s = Theme::dark().with_scale(1.5);
+        assert_eq!(s.typography.font_size_base, 21); // 14 * 1.5 = 21.0
+        assert_eq!(s.typography.font_size_small, 18); // 12 * 1.5 = 18.0
+        assert_eq!(s.spacing.base, 12); // 8 * 1.5 = 12.0
+        // borders.width: 1 * 1.5 = 1.5 → rounds to 2
+        assert_eq!(s.borders.width, 2);
+    }
+
+    #[test]
+    fn with_scale_clamps_border_width_to_at_least_one() {
+        // At very small scales, rounding would zero-out the border.
+        // We force a minimum of 1 px so borders never silently disappear.
+        let s = Theme::dark().with_scale(0.1);
+        assert_eq!(s.borders.width, 1);
     }
 }

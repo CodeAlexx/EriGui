@@ -568,7 +568,7 @@ fn main() -> Result<()> {
     // Detect primary monitor and use 85% of its size in logical pixels.
     // Falls back to 2400x1600 if no monitor info (was 1400x900 — too small
     // on 4K screens when primary_monitor returned None).
-    let (win_w, win_h) = match event_loop.primary_monitor() {
+    let (win_w, win_h, ui_scale) = match event_loop.primary_monitor() {
         Some(m) => {
             let scale = m.scale_factor().max(1.0);
             let phys = m.size();
@@ -582,15 +582,16 @@ fn main() -> Result<()> {
                 w,
                 h
             );
-            (w.max(1024), h.max(720))
+            (w.max(1024), h.max(720), scale as f32)
         }
         None => {
             log::warn!("no primary monitor detected; falling back to 2400x1600 logical");
-            (2400, 1600)
+            (2400, 1600, 1.0_f32)
         }
     };
     let mut renderer = Renderer::new(&event_loop, win_w, win_h, "EriGui — Node Graph App")?;
-    let theme = Theme::alex_jammin();
+    log::info!("UI scale = {:.2} (HiDPI font/spacing/border multiplier)", ui_scale);
+    let theme = Theme::alex_jammin().with_scale(ui_scale);
     let viewport = renderer.viewport_size();
     let mut app = App::new(theme.clone(), viewport);
 

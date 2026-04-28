@@ -30,25 +30,20 @@ new behaviors.
 
 ## Hard production blockers (do these first)
 
-### 1. HiDPI / font scaling (highest user impact)
-**Symptom**: on 4K screens, every glyph is rendered at half its expected
-pixel size. User has called this out multiple times.
-
-**Root cause**: `Theme.typography.font_size_base` (and friends) are raw
-`i32` pixel values. The `DrawContext::draw_text(&str, Point, size)` path
-takes that size literally regardless of monitor scale_factor.
-
-**Fix path**: thread `scale_factor` through one of:
-  - (a) Have `Theme::dark()` / `from_system()` query the monitor at
-    construction and bake scale into the font sizes once. Simplest.
-  - (b) Add a `scale: f32` parameter to draw functions that need text.
-    Cleaner but touches every call site.
-  - (c) Have the GL renderer (`erigui-rendering`) scale all text-draw
-    calls by the window's `scale_factor` automatically. Most invasive
-    but most "correct".
-
-**Recommended**: (a) with a builder method `Theme::with_scale(f32)` so
-hosts can override. Lets the test suite stay at scale 1.0.
+### 1. HiDPI / font scaling — **DONE 2026-04-28**
+Shipped path (a). `Theme::with_scale(f32)` builder added to
+`erigui-core/src/theme.rs`. It scales all pixel-valued integer fields
+(typography font sizes, spacing, borders) — not just fonts, because
+14px font scaled to 28px inside 8px-padded boxes broke layouts.
+`erigui-app/src/main.rs` now constructs the theme as
+`Theme::alex_jammin().with_scale(ui_scale)` where `ui_scale` is the
+primary monitor's `scale_factor` (already queried for window sizing).
+Tests stay at scale 1.0 since `Theme::dark()` / `Theme::light()`
+default to identity. 8 new tests in `theme::tests::with_scale_*`,
+covering identity, 2.0×, 1.5× rounding, color/family preservation,
+zero/negative clamping, and 1px-border floor at extreme scales.
+Workspace: **317 passed**, 0 failed (was 309). Cross-monitor changes
+not handled — explicit user decision.
 
 ### 2. Native file picker (no GTK)
 **Symptom**: file_dialog widget has ugly fonts, awkward layout, no
@@ -173,8 +168,8 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 
 ## Concrete next-session task list (priority order)
 
-1. **HiDPI fonts** (~1-2 hours): pick path (a)/(b)/(c) above, implement,
-   add tests at scale 1.0 + scale 2.0.
+1. ~~**HiDPI fonts**~~ — done (commit on this push). All px-valued
+   Theme fields scale, not just fonts.
 2. **Native file picker** (~30 min): swap rfd usage out for
    tinyfiledialogs in `erigui-app/src/main.rs::open_save_dialog` and
    `open_load_dialog`. Keep the in-app widget for fallback.
@@ -185,8 +180,7 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 6. **Untested widget smoke** (~3 hours): 21 widgets × ~10 min each.
 7. **Accordion kbd** (~30 min): if there's time.
 
-Total: 6-8 hours of focused CPU work to take the library from "works
-for me" to "shippable". No GPU needed for any of it.
+Total remaining: ~5-6 hours of CPU work.
 
 ## Quick reference
 

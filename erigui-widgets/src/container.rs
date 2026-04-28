@@ -227,6 +227,7 @@ impl Widget for Container {
 
     fn draw(&self, _context: &mut dyn DrawContext, _theme: &Theme) {
         if !self.state.visible {
+            return;
         }
 
         // Containers typically don't draw themselves, just their children

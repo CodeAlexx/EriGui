@@ -1,6 +1,6 @@
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, MouseButtonEvent, Point, Rect,
-    Size, Theme, Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, LayoutConstraints, MouseButton, MouseButtonEvent, Point,
+    Rect, Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -180,7 +180,58 @@ impl Widget for ListView {
                 } else {
                     self.set_selected_index(Some(index));
                 }
+                self.state.focused = true;
                 return EventResult::Consumed;
+            }
+        }
+
+        // Keyboard navigation when focused. Standard list behavior:
+        // Up/Down move selection, Home/End jump, Space/Enter on the
+        // selected item is host-meaningful (no internal action — the
+        // host wires it through `on_selection_change` already firing
+        // on `set_selected_index`).
+        if let Event::KeyPress(ev) = event {
+            if !self.state.focused {
+                return EventResult::Ignored;
+            }
+            if self.items.is_empty() {
+                return EventResult::Ignored;
+            }
+            let cur = self.selected_index.unwrap_or(0);
+            let last = self.items.len() - 1;
+            match ev.key {
+                Key::Down => {
+                    let next = (cur + 1).min(last);
+                    self.set_selected_index(Some(next));
+                    return EventResult::Consumed;
+                }
+                Key::Up => {
+                    let next = cur.saturating_sub(1);
+                    self.set_selected_index(Some(next));
+                    return EventResult::Consumed;
+                }
+                Key::Home => {
+                    self.set_selected_index(Some(0));
+                    return EventResult::Consumed;
+                }
+                Key::End => {
+                    self.set_selected_index(Some(last));
+                    return EventResult::Consumed;
+                }
+                Key::PageDown => {
+                    // 10 items as a reasonable page size since item height
+                    // is fixed at 24 and viewport size isn't known at this
+                    // layer.
+                    let next = (cur + 10).min(last);
+                    self.set_selected_index(Some(next));
+                    return EventResult::Consumed;
+                }
+                Key::PageUp => {
+                    let next = cur.saturating_sub(10);
+                    self.set_selected_index(Some(next));
+                    return EventResult::Consumed;
+                }
+                _ => {}
             }
         }
 

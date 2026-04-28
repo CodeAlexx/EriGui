@@ -511,3 +511,115 @@ fn checkbox_keys_ignored_when_unfocused() {
     assert_eq!(r, EventResult::Ignored);
     assert_eq!(c.is_checked(), initial);
 }
+
+// ============================================================================
+// ListView keyboard navigation (overnight audit, 2026-04-28)
+// Previously: focus state was wired but NO key handling. Long lists were
+// unusable from the keyboard.
+// ============================================================================
+
+use erigui_widgets::{ListItem, ListView};
+
+fn list_with(n: usize) -> ListView {
+    let items = (0..n)
+        .map(|i| ListItem {
+            id: format!("id_{i}"),
+            text: format!("item_{i}"),
+            icon: None,
+            selected: false,
+        })
+        .collect();
+    ListView::new(test_id()).with_items(items)
+}
+
+#[test]
+fn list_view_down_arrow_advances_selection_when_focused() {
+    let theme = default_theme();
+    let mut lv = list_with(5);
+    lv.layout(Rect::new(0, 0, 200, 200), &theme);
+    lv.set_focused(true);
+    lv.set_selected_index(Some(0));
+
+    let key = |k: Key| Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+
+    lv.handle_event(&key(Key::Down), &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_1");
+    lv.handle_event(&key(Key::Down), &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_2");
+}
+
+#[test]
+fn list_view_down_clamps_at_last() {
+    let theme = default_theme();
+    let mut lv = list_with(3);
+    lv.layout(Rect::new(0, 0, 200, 200), &theme);
+    lv.set_focused(true);
+    lv.set_selected_index(Some(2));
+
+    let key = Event::KeyPress(KeyPressEvent {
+        key: Key::Down,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    lv.handle_event(&key, &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_2", "Down at end stays put");
+}
+
+#[test]
+fn list_view_up_clamps_at_zero() {
+    let theme = default_theme();
+    let mut lv = list_with(3);
+    lv.layout(Rect::new(0, 0, 200, 200), &theme);
+    lv.set_focused(true);
+    lv.set_selected_index(Some(0));
+
+    let key = Event::KeyPress(KeyPressEvent {
+        key: Key::Up,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    lv.handle_event(&key, &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_0", "Up at start stays put");
+}
+
+#[test]
+fn list_view_home_end_jump_to_bounds() {
+    let theme = default_theme();
+    let mut lv = list_with(10);
+    lv.layout(Rect::new(0, 0, 200, 200), &theme);
+    lv.set_focused(true);
+    lv.set_selected_index(Some(5));
+
+    let key = |k: Key| Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+
+    lv.handle_event(&key(Key::Home), &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_0");
+    lv.handle_event(&key(Key::End), &theme);
+    assert_eq!(lv.selected_item().unwrap().id, "id_9");
+}
+
+#[test]
+fn list_view_keys_ignored_when_unfocused() {
+    let theme = default_theme();
+    let mut lv = list_with(5);
+    lv.layout(Rect::new(0, 0, 200, 200), &theme);
+    lv.set_selected_index(Some(0));
+    // Not focused.
+
+    let key = Event::KeyPress(KeyPressEvent {
+        key: Key::Down,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    let r = lv.handle_event(&key, &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(lv.selected_item().unwrap().id, "id_0", "unfocused list shouldn't move");
+}

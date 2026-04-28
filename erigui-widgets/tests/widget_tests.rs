@@ -919,3 +919,199 @@ fn list_view_keys_ignored_when_unfocused() {
     assert_eq!(r, EventResult::Ignored);
     assert_eq!(lv.selected_item().unwrap().id, "id_0", "unfocused list shouldn't move");
 }
+
+// ============================================================================
+// TabControl focus + keyboard nav (item #4 from production handoff)
+// Previously: can_focus() returned false, set_focused was a no-op, no key
+// handling — Ctrl+Tab did nothing, hosts couldn't direct focus to it.
+// ============================================================================
+
+use erigui_widgets::{TabControl, TabPage};
+
+fn tabs_with(n: usize) -> TabControl {
+    let mut tc = TabControl::new(test_id());
+    for i in 0..n {
+        tc.add_tab(TabPage::new(format!("tab_{i}")));
+    }
+    tc
+}
+
+fn ctrl_key(k: Key) -> Event {
+    Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::CTRL,
+        repeat: false,
+    })
+}
+
+fn ctrl_shift_key(k: Key) -> Event {
+    Event::KeyPress(KeyPressEvent {
+        key: k,
+        modifiers: Modifiers::CTRL | Modifiers::SHIFT,
+        repeat: false,
+    })
+}
+
+#[test]
+fn tab_control_focus_round_trips() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    assert!(tc.can_focus(), "enabled+visible TabControl should be focusable");
+    assert!(!tc.is_focused(), "starts unfocused");
+    tc.set_focused(true);
+    assert!(tc.is_focused(), "set_focused(true) should stick");
+    tc.set_focused(false);
+    assert!(!tc.is_focused(), "set_focused(false) should stick");
+}
+
+#[test]
+fn tab_control_ctrl_tab_advances_when_focused() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+    assert_eq!(tc.active_tab(), 0);
+
+    let r = tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(tc.active_tab(), 1, "Ctrl+Tab should move forward one tab");
+
+    tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(tc.active_tab(), 2);
+}
+
+#[test]
+fn tab_control_ctrl_shift_tab_goes_back() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+    tc.set_active_tab(2);
+
+    let r = tc.handle_event(&ctrl_shift_key(Key::Tab), &theme);
+    assert_eq!(r, EventResult::Consumed);
+    assert_eq!(tc.active_tab(), 1, "Ctrl+Shift+Tab should move back one tab");
+}
+
+#[test]
+fn tab_control_ctrl_tab_wraps_at_end() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+    tc.set_active_tab(2);
+
+    tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(tc.active_tab(), 0, "Ctrl+Tab from last should wrap to first");
+}
+
+#[test]
+fn tab_control_ctrl_shift_tab_wraps_at_start() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+    assert_eq!(tc.active_tab(), 0);
+
+    tc.handle_event(&ctrl_shift_key(Key::Tab), &theme);
+    assert_eq!(tc.active_tab(), 2, "Ctrl+Shift+Tab from first should wrap to last");
+}
+
+#[test]
+fn tab_control_ctrl_digit_jumps_to_index() {
+    let theme = default_theme();
+    let mut tc = tabs_with(5);
+    tc.layout(Rect::new(0, 0, 800, 300), &theme);
+    tc.set_focused(true);
+
+    tc.handle_event(&ctrl_key(Key::Num3), &theme);
+    assert_eq!(tc.active_tab(), 2, "Ctrl+3 should activate the 3rd tab (index 2)");
+    tc.handle_event(&ctrl_key(Key::Num1), &theme);
+    assert_eq!(tc.active_tab(), 0);
+    tc.handle_event(&ctrl_key(Key::Num5), &theme);
+    assert_eq!(tc.active_tab(), 4);
+}
+
+#[test]
+fn tab_control_ctrl_digit_past_count_is_noop() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+
+    let r = tc.handle_event(&ctrl_key(Key::Num9), &theme);
+    assert_eq!(r, EventResult::Ignored, "Ctrl+9 with only 3 tabs should not consume");
+    assert_eq!(tc.active_tab(), 0, "active stays at 0");
+}
+
+#[test]
+fn tab_control_ctrl_tab_skips_disabled() {
+    let theme = default_theme();
+    let mut tc = TabControl::new(test_id());
+    tc.add_tab(TabPage::new("a"));
+    let mut middle = TabPage::new("b");
+    middle.enabled = false;
+    tc.add_tab(middle);
+    tc.add_tab(TabPage::new("c"));
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+    assert_eq!(tc.active_tab(), 0);
+
+    // Ctrl+Tab forward should jump 0 → 2 (skipping disabled 1).
+    tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(tc.active_tab(), 2, "Ctrl+Tab must skip disabled tab");
+    // And from 2, Ctrl+Tab wraps past disabled 1 to 0.
+    tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(tc.active_tab(), 0);
+}
+
+#[test]
+fn tab_control_keys_ignored_when_unfocused() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    // Not focused.
+
+    let r = tc.handle_event(&ctrl_key(Key::Tab), &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(tc.active_tab(), 0, "unfocused TabControl ignores Ctrl+Tab");
+}
+
+#[test]
+fn tab_control_unmodified_tab_ignored() {
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    tc.set_focused(true);
+
+    // Plain Tab (no Ctrl) is the host's tab-traversal key — must not cycle.
+    let plain = Event::KeyPress(KeyPressEvent {
+        key: Key::Tab,
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    let r = tc.handle_event(&plain, &theme);
+    assert_eq!(r, EventResult::Ignored);
+    assert_eq!(tc.active_tab(), 0);
+}
+
+#[test]
+fn tab_control_click_focuses() {
+    use erigui_core::{MouseButton, MouseButtonEvent, Point};
+    let theme = default_theme();
+    let mut tc = tabs_with(3);
+    tc.layout(Rect::new(0, 0, 600, 300), &theme);
+    assert!(!tc.is_focused());
+
+    // Tab 0 is at x ∈ [0, max(600/3, 80, ...)). With width 600 / 3 = 200,
+    // tab 0 is at (0, 0, 200, 30). Click at (50, 15) lands inside.
+    let click = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(50, 15),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    tc.handle_event(&click, &theme);
+    assert!(tc.is_focused(), "click on a tab should focus the TabControl");
+}

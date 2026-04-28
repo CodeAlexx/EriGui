@@ -1,6 +1,6 @@
 use erigui_core::{
-    DrawContext, Event, EventResult, LayoutConstraints, MouseButton, Point, Rect, Size, Theme,
-    Widget, WidgetId, WidgetState,
+    DrawContext, Event, EventResult, Key, LayoutConstraints, Modifiers, MouseButton, Point, Rect,
+    Size, Theme, Widget, WidgetId, WidgetState,
 };
 use std::any::Any;
 
@@ -188,6 +188,46 @@ impl TabControl {
 
         (0..self.tabs.len()).find(|&i| self.get_tab_rect(i).contains(point))
     }
+
+    /// Find the next enabled tab from `start`, going `forward` or backward.
+    /// Wraps around. Skips disabled tabs so Ctrl+Tab can't get stuck.
+    /// Returns `None` if no enabled tab exists at all (or only `start`
+    /// itself is enabled, in which case there's nowhere new to go).
+    fn next_enabled_tab(&self, start: usize, forward: bool) -> Option<usize> {
+        let n = self.tabs.len();
+        if n <= 1 {
+            return None;
+        }
+        for step in 1..n {
+            let i = if forward {
+                (start + step) % n
+            } else {
+                // step < n so (start + n - step) is in [start+1, start+n-1]
+                (start + n - step) % n
+            };
+            if self.tabs[i].enabled {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Map `Key::Num1..Key::Num9` to indices 0..8. Returns `None` for any
+    /// other key or for digits past the tab count.
+    fn tab_index_from_digit(key: &Key) -> Option<usize> {
+        match key {
+            Key::Num1 => Some(0),
+            Key::Num2 => Some(1),
+            Key::Num3 => Some(2),
+            Key::Num4 => Some(3),
+            Key::Num5 => Some(4),
+            Key::Num6 => Some(5),
+            Key::Num7 => Some(6),
+            Key::Num8 => Some(7),
+            Key::Num9 => Some(8),
+            _ => None,
+        }
+    }
 }
 
 impl Widget for TabControl {
@@ -353,8 +393,43 @@ impl Widget for TabControl {
                     if let Some(tab_index) = self.tab_from_point(mouse_event.position) {
                         if self.tabs[tab_index].enabled {
                             self.set_active_tab(tab_index);
+                            // Match ListView/Slider: focus on click so
+                            // subsequent Ctrl+Tab keys are accepted.
+                            self.state.focused = true;
                             return EventResult::Consumed;
                         }
+                    }
+                }
+                EventResult::Ignored
+            }
+
+            Event::KeyPress(ev) => {
+                // All shortcuts require focus — host hands focus via Tab
+                // traversal or click. Without this, every Ctrl+Tab in the
+                // app would steal from whichever tab control was nearby.
+                if !self.state.focused {
+                    return EventResult::Ignored;
+                }
+                if !ev.modifiers.contains(Modifiers::CTRL) {
+                    return EventResult::Ignored;
+                }
+                // Ctrl+Tab / Ctrl+Shift+Tab cycles enabled tabs.
+                if ev.key == Key::Tab {
+                    let forward = !ev.modifiers.contains(Modifiers::SHIFT);
+                    if let Some(next) = self.next_enabled_tab(self.active_tab, forward) {
+                        self.set_active_tab(next);
+                    }
+                    return EventResult::Consumed;
+                }
+                // Ctrl+1..9 jumps directly. set_active_tab no-ops on
+                // disabled or out-of-range index — both correct here.
+                if ev.modifiers.contains(Modifiers::SHIFT) {
+                    return EventResult::Ignored;
+                }
+                if let Some(idx) = Self::tab_index_from_digit(&ev.key) {
+                    if idx < self.tabs.len() {
+                        self.set_active_tab(idx);
+                        return EventResult::Consumed;
                     }
                 }
                 EventResult::Ignored
@@ -389,13 +464,15 @@ impl Widget for TabControl {
     }
 
     fn is_focused(&self) -> bool {
-        false
+        self.state.focused
     }
 
-    fn set_focused(&mut self, _focused: bool) {}
+    fn set_focused(&mut self, focused: bool) {
+        self.state.focused = focused;
+    }
 
     fn can_focus(&self) -> bool {
-        false
+        self.state.enabled && self.state.visible
     }
 
     fn children(&self) -> &[WidgetId] {

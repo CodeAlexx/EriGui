@@ -65,7 +65,14 @@ present on this Linux box. Cross-platform: Win32
 `zenity`/`kdialog`/`qarma` — picked over `rfd` because rfd drags
 GTK.
 
-### 3. ScrollBar drag-to-scroll — **DONE 2026-04-28**
+### 3. ScrollBar drag-to-scroll — **DONE 2026-04-28** (visual TODO)
+**Visual verification still pending** — needs a ListView in the live
+app populated with enough items to overflow the viewport. The CPU
+tests confirm the math but no human has dragged the thumb yet. Try
+again once a long ListView appears in the UI (long add-node menu,
+file dialog inside a populated dir, etc.).
+
+
 Shipped: `ListView` now has a `ScrollbarDrag` state field. On
 MouseButton-Left press inside the thumb rect, drag captures
 `(start_mouse_y, start_offset)`; subsequent MouseMove deltas map back
@@ -80,13 +87,18 @@ scrolls, drag-then-release stops tracking, drag past end clamps to
 max_scroll, no-overflow lists ignore drag, track-but-not-thumb press
 doesn't engage. Workspace: **322 passed**, 0 failed.
 
-### 4. TabControl not focusable
-**Symptom**: `can_focus()` returns `false`, `set_focused` is a no-op.
-Hosts can't direct focus to it, so Ctrl+Tab style tab navigation is
-impossible.
-
-**Fix**: same pattern as Slider/Checkbox/ListView — make focus state
-real, add Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9 keyboard handling.
+### 4. TabControl focus + keyboard — **DONE 2026-04-28**
+Shipped: `is_focused`/`set_focused`/`can_focus` now read/write
+`WidgetState::focused` (was hardcoded false / no-op). Mouse click on
+a tab also sets focus. Keyboard nav when focused: **Ctrl+Tab** moves
+to next enabled tab, **Ctrl+Shift+Tab** to previous, **Ctrl+1..9**
+jumps to that index. Wrap-around at both ends. Disabled tabs are
+skipped via `next_enabled_tab` so Ctrl+Tab can't get stuck — without
+this, a single disabled tab between two enabled ones would have made
+forward navigation impossible. Plain Tab (no Ctrl) is intentionally
+ignored so the host's tab-traversal layer keeps working. 11 tests
+covering all of the above plus unfocused-keys-ignored and
+out-of-range Ctrl+9. Workspace **333 passed**, 0 failed.
 
 ## Soft blockers (production-quality polish)
 
@@ -167,14 +179,14 @@ For widgets that need `Theme::dark()`'s field defaults, use that. The
 
 1. ~~**HiDPI fonts**~~ — done.
 2. ~~**Native file picker**~~ — done.
-3. ~~**ScrollBar drag**~~ — done. Press-on-thumb, drag, release; 5
-   tests including clamp + no-overflow no-op + track-but-not-thumb.
-4. **TabControl focus + kbd** (~30 min): same pattern as Slider.
+3. ~~**ScrollBar drag**~~ — done (visual verify pending).
+4. ~~**TabControl focus + kbd**~~ — done. Ctrl+Tab/Shift+Tab/Ctrl+1..9
+   with disabled-tab skipping.
 5. **Tooltip auto-show/hide** (~30 min): timer-based hover detection.
 6. **Untested widget smoke** (~3 hours): 21 widgets × ~10 min each.
 7. **Accordion kbd** (~30 min): if there's time.
 
-Total remaining: ~4 hours of CPU work.
+Total remaining: ~3.5 hours of CPU work.
 
 ## Quick reference
 

@@ -11,7 +11,7 @@ use erigui_core::{
     Color, DrawContext, Event, EventResult, Key, KeyPressEvent, LayoutConstraints, Modifiers,
     MouseButton, MouseButtonEvent, Rect, Size, Theme, Widget,
 };
-use erigui_rendering::{convert_window_event, Renderer};
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::{
     clear_clipboard, get_clipboard, Accordion, AccordionPanel, Breadcrumb, BreadcrumbItem, Button,
     Checkbox, ColorPicker, ColorPickerStyle, ComboBox, DateTimePicker, DateTimePickerMode, Dialog,
@@ -1517,6 +1517,13 @@ fn main() -> anyhow::Result<()> {
     let mut app = App::new(viewport);
     app.layout(viewport, &theme);
 
+    // Persistent translator — caches last_cursor across calls so MouseInput
+    // events get the actual click position. The free `convert_window_event`
+    // helper instantiates a fresh EventTranslator per call, which silently
+    // reports every click at (0, 0) and is the reason this demo's clicks
+    // weren't reaching widgets at all in the previous build.
+    let mut translator = EventTranslator::new(viewport);
+
     event_loop.run(move |event, elwt| {
         // Poll so the per-widget tooltip 500ms timers tick forward even when
         // the cursor is sitting still (the same trick tooltip_demo.rs uses).
@@ -1532,6 +1539,7 @@ fn main() -> anyhow::Result<()> {
                             physical_size.width as i32,
                             physical_size.height as i32,
                         );
+                        translator.set_window_size(new_size);
                         app.layout(new_size, &theme);
                         renderer.window().request_redraw();
                     }
@@ -1548,9 +1556,7 @@ fn main() -> anyhow::Result<()> {
                     _ => {}
                 }
 
-                if let Some(gui_event) =
-                    convert_window_event(event, renderer.viewport_size())
-                {
+                if let Some(gui_event) = translator.translate(&event) {
                     app.handle_event(&gui_event, &theme);
                     // After every event, push an animation tick to the
                     // notification manager so slide-in/out animations

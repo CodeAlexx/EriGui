@@ -240,8 +240,11 @@ impl BasicInputsTab {
         self.cb_b.draw(ctx, theme);
         self.slider.draw(ctx, theme);
         self.spin.draw(ctx, theme);
-        self.combo.draw(ctx, theme);
+        // ComboBox last so its open dropdown overlays the TextInput below.
+        // Earlier order drew TextInput on top of the dropdown popup, hiding
+        // the lower options behind it.
         self.text_input.draw(ctx, theme);
+        self.combo.draw(ctx, theme);
     }
 
     fn handle_event(&mut self, e: &Event, theme: &Theme) {
@@ -281,7 +284,7 @@ impl SelectionTab {
         let s1 = status.clone();
         let s2 = status.clone();
 
-        let items: Vec<ListItem> = (1..=50)
+        let items: Vec<ListItem> = (1..=200)
             .map(|i| ListItem {
                 id: format!("row{}", i),
                 text: format!("Item {} (drag scrollbar to move me)", i),
@@ -1160,6 +1163,8 @@ struct MiscTab {
     label_progress: Label,
     label_textarea: Label,
     icons_rect: Rect,
+    /// Advanced once per redraw tick so the bar visibly moves. Wraps at 100.
+    progress_phase: f32,
 }
 
 impl MiscTab {
@@ -1187,13 +1192,24 @@ impl MiscTab {
                 Default::default(),
                 "Icons (wave-3: gear/palette now paint hole in surface color):",
             ),
-            label_progress: Label::new(Default::default(), "ProgressBar (50%):"),
+            label_progress: Label::new(
+                Default::default(),
+                "ProgressBar (animates 0..100 each frame to verify redraw is alive):",
+            ),
             label_textarea: Label::new(
                 Default::default(),
                 "TextArea: select 'archive hello' on line 1, Ctrl+C; status shows clipboard.",
             ),
             icons_rect: Rect::default(),
+            progress_phase: 0.0,
         }
+    }
+
+    /// Advance the progress bar by ~1% per call. Called from the
+    /// redraw loop so the bar visibly moves; wraps to 0 at 100.
+    fn tick_progress(&mut self) {
+        self.progress_phase = (self.progress_phase + 1.0) % 100.0;
+        self.progress.set_value(self.progress_phase);
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
@@ -1548,6 +1564,10 @@ fn main() -> anyhow::Result<()> {
                         // request_redraw(); paint here. This is the canonical
                         // spot for the GL frame, mirroring erigui-app.
                         app.notifications.update_animations(1.0 / 60.0);
+                        // Advance the Tab 6 ProgressBar so it visibly moves
+                        // per frame instead of being stuck at its initial
+                        // value. Verifies the redraw cycle is alive.
+                        app.misc.tick_progress();
                         app.layout(renderer.viewport_size(), &theme);
                         renderer.begin_frame(theme.colors.background);
                         app.draw(&mut renderer, &theme);

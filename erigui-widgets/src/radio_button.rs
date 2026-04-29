@@ -165,10 +165,26 @@ impl RadioButton {
                 self.initially_checked = checked;
             }
         }
+        // Snap animation immediately for THIS radio so the inner dot
+        // appears on click without requiring Event::Update pumping.
+        // Other radios in the group will catch up via sync_animation
+        // (called from handle_event on every event) or via Event::Update.
+        self.animation_progress = if checked { 1.0 } else { 0.0 };
         if was_checked != checked {
             if let Some(callback) = &mut self.on_change {
                 callback(checked);
             }
+        }
+    }
+
+    /// Pull the visual state in line with the group's selection. Cheap
+    /// (one borrow + one compare). Called from handle_event on every
+    /// event so a click on radio A also animates radio B's deselection
+    /// without requiring the host to pump Event::Update.
+    fn sync_animation_from_group(&mut self) {
+        let target: f32 = if self.is_checked() { 1.0 } else { 0.0 };
+        if (self.animation_progress - target).abs() > 0.001 {
+            self.animation_progress = target;
         }
     }
 
@@ -323,6 +339,13 @@ impl Widget for RadioButton {
         if !self.state.enabled || !self.state.visible {
             return EventResult::Ignored;
         }
+
+        // Sync animation state to the group's view of selection on every
+        // event. When radio A's click selects A, B/C/D see the same event
+        // (or any subsequent event) and update their own visual state
+        // accordingly without needing Event::Update to be explicitly
+        // pumped by the host.
+        self.sync_animation_from_group();
 
         match event {
             Event::MouseButton(MouseButtonEvent {

@@ -1,5 +1,5 @@
 use erigui_core::*;
-use erigui_rendering::Renderer;
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::*;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
@@ -97,6 +97,11 @@ fn main() {
 
     let mut demo = DockPanelDemo::new();
 
+    // Persistent translator. The `convert_window_event` shortcut is
+    // deprecated because it instantiates a fresh translator per call,
+    // which loses last_cursor and reports every click as (0, 0).
+    let mut translator = EventTranslator::new(renderer.viewport_size());
+
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
 
@@ -108,14 +113,13 @@ fn main() {
                     }
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
+                        translator.set_window_size(renderer.viewport_size());
                     }
                     _ => {}
                 }
 
                 // Convert window event to EriGui event
-                if let Some(gui_event) =
-                    erigui_rendering::window::convert_window_event(event, renderer.viewport_size())
-                {
+                if let Some(gui_event) = translator.translate(&event) {
                     let dock_result = demo.dock_panel.handle_event(&gui_event, &theme);
 
                     if dock_result == EventResult::Consumed {

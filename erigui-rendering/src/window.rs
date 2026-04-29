@@ -241,7 +241,23 @@ fn map_key(key: KeyCode) -> Key {
     }
 }
 
-/// Legacy helper kept for compatibility; for richer handling prefer `EventTranslator`.
+/// Broken-by-design helper. Constructs a fresh `EventTranslator` on
+/// every call, which means `last_cursor` is always `Point::ZERO` and
+/// every `WindowEvent::MouseInput` translates to a click at `(0, 0)`
+/// because winit's `MouseInput` doesn't carry the cursor position;
+/// the translator only knows it via the most recent `CursorMoved`,
+/// which a fresh translator hasn't seen.
+///
+/// Use a persistent `EventTranslator` instead — keep one for the
+/// lifetime of the window, mirror `Resize` events into
+/// `set_window_size`, and call `translate(&event)` per event. See
+/// `examples/kitchen_sink.rs` for the canonical pattern (commit
+/// a59a7f3).
+#[deprecated(
+    since = "0.0.4-alpha",
+    note = "Constructs a fresh EventTranslator per call so MouseInput clicks always report (0, 0). \
+            Hold a persistent EventTranslator instead and call translate(&event)."
+)]
 pub fn convert_window_event(event: WindowEvent, window_size: Size) -> Option<Event> {
     let mut tx = EventTranslator::new(window_size);
     tx.translate(&event)

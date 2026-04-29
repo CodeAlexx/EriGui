@@ -2,7 +2,7 @@ use erigui_core::{
     Color, DrawContext, LayoutConfig, LayoutMode, Margins, Point, Rect, Size, Theme, ThemeManager,
     Widget,
 };
-use erigui_rendering::{convert_window_event, Renderer};
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::{
     Button, Container, Label, ListItem, ListView, TextAlign, TextInput, TreeNode,
     TreeView, WidgetId, WidgetManager,
@@ -455,6 +455,11 @@ fn main() -> anyhow::Result<()> {
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::ControlFlow;
 
+    // Persistent translator so MouseInput clicks see the cached
+    // last_cursor — see deprecation note on convert_window_event and
+    // kitchen_sink commit a59a7f3.
+    let mut translator = EventTranslator::new(renderer.viewport_size());
+
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
 
@@ -464,16 +469,18 @@ fn main() -> anyhow::Result<()> {
                     WindowEvent::CloseRequested => elwt.exit(),
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
-                        app.layout_widgets(Size::new(
+                        let new_size = Size::new(
                             physical_size.width as i32,
                             physical_size.height as i32,
-                        ));
+                        );
+                        translator.set_window_size(new_size);
+                        app.layout_widgets(new_size);
                     }
                     _ => {}
                 }
 
                 // Convert and handle widget events
-                if let Some(gui_event) = convert_window_event(event, renderer.viewport_size()) {
+                if let Some(gui_event) = translator.translate(&event) {
                     app.handle_event(&gui_event);
                 }
             }

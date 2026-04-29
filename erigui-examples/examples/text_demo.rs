@@ -1,7 +1,7 @@
 use erigui_core::{
     Color, DrawContext, LayoutConfig, LayoutMode, Margins, Point, Rect, Size, Theme, Widget,
 };
-use erigui_rendering::{convert_window_event, Renderer};
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::{Button, Container, Label, TextAlign, TextInput, WidgetId, WidgetManager};
 use std::collections::HashMap;
 
@@ -356,6 +356,9 @@ fn main() -> anyhow::Result<()> {
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::ControlFlow;
 
+    // Persistent translator: see deprecation note on convert_window_event.
+    let mut translator = EventTranslator::new(renderer.viewport_size());
+
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
 
@@ -365,15 +368,17 @@ fn main() -> anyhow::Result<()> {
                     WindowEvent::CloseRequested => elwt.exit(),
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
-                        app.layout_widgets(Size::new(
+                        let new_size = Size::new(
                             physical_size.width as i32,
                             physical_size.height as i32,
-                        ));
+                        );
+                        translator.set_window_size(new_size);
+                        app.layout_widgets(new_size);
                     }
                     _ => {}
                 }
 
-                if let Some(gui_event) = convert_window_event(event, renderer.viewport_size()) {
+                if let Some(gui_event) = translator.translate(&event) {
                     app.handle_event(&gui_event);
                 }
             }

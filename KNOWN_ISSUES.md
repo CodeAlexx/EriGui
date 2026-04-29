@@ -1,5 +1,32 @@
 # Known issues
 
+## TODO: rebuild FileManager widget with real filesystem (2026-04-28)
+
+**Status**: open. Original `file_manager.rs` was deleted in wave-1
+commit `74659fb` because it was a non-functional stub: every method
+that should have read the filesystem returned hardcoded mock data
+("Home / Documents / Downloads / Pictures" tree, "document.txt /
+image.png / Projects" list). `refresh()` was empty. `draw()` did
+nothing. `handle_event` returned Ignored. Pure layout shell.
+
+**What to build**: a real `FileManager` widget composed of
+- A left `TreeView` "sidebar" listing reachable bookmarks (Home,
+  Documents, /tmp, etc.) plus the current path's parent chain
+- A right `ListView` showing the current directory's entries via
+  `std::fs::read_dir`
+- A top `Breadcrumb` showing the current path
+- Optional: hidden-files toggle, sort dropdown, search box
+
+**Estimate**: 2-3 hours. Watch for path-traversal pitfalls
+(canonicalize paths, never trust user-typed paths to stay inside a
+sandbox if one is configured).
+
+**Note**: this is independent of `file_dialog.rs` (the in-app open/
+save dialog, which is now a fallback since `tinyfiledialogs` is the
+live picker per wave-1 commit `6f74592`).
+
+---
+
 ## inference-flame API drift — erigui-nodes won't compile (2026-04-28)
 
 **Status**: open. Discovered during the wave-2 Rustification pass.

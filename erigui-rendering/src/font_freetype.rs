@@ -85,8 +85,16 @@ impl FontRenderer {
         size: i32,
         viewport_size: Size,
     ) {
+        // Widgets pass `position.y` as the TOP of the text region (e.g.
+        // `inner.center().y - font_size / 2` in TextInput). Shift to the
+        // baseline by adding the ascender. Without this, glyphs render
+        // with their baseline at the top, so the glyphs themselves sit
+        // ABOVE the top of the widget — visible clipping at HiDPI.
+        // Approximate ascender as ~0.8 of font_size; works for the
+        // codebase's font (JetBrains Mono) without per-call FreeType
+        // metric lookups.
         let mut cursor_x = position.x as f32;
-        let baseline_y = position.y as f32;
+        let baseline_y = position.y as f32 + size as f32 * 0.8;
 
         unsafe {
             gl::Enable(gl::TEXTURE_2D);

@@ -23,12 +23,42 @@ EriGui is a comprehensive, pure Rust GUI framework designed for Wayland-only env
 
 ## Architecture
 
-The framework is organized into four crates:
+The framework is organized into the following crates:
 
 - `erigui-core` - Core types, traits, and abstractions
-- `erigui-rendering` - OpenGL rendering backend
-- `erigui-widgets` - Widget implementations
-- `erigui-examples` - Example applications
+- `erigui-rendering` - OpenGL rendering backend (winit + glutin + freetype)
+- `erigui-widgets` - 30+ widget implementations
+- `erigui-runtime` - Reactive runtime layer
+- `erigui-workflow` - Workflow / signal graph layer
+- `erigui-app` - App scaffolding and shell
+- `erigui-nodes` - Node-graph editor (currently blocked on
+  upstream `inference-flame` API drift, see `KNOWN_ISSUES.md`)
+- `erigui-examples` - Example applications and the kitchen_sink demo
+
+## Status & known issues
+
+- Active development, alpha-quality. Behavior on Wayland + HiDPI
+  is the primary test target and continues to be hardened in
+  passes documented in `HANDOFF_*.md` files at the repo root.
+- The `kitchen_sink` example (`cargo run --release --example
+  kitchen_sink -p erigui-examples`) is the canonical
+  visual-regression harness across all 6 tab pages.
+- `convert_window_event` is `#[deprecated]` — hosts must hold a
+  persistent `EventTranslator` for the window's lifetime.
+  `MouseInput` events lose cursor position when a fresh translator
+  is constructed per call. See the kitchen_sink event loop for the
+  canonical pattern.
+- `erigui-nodes` doesn't compile against the current
+  `inference-flame` API (3 errors). Tracked in `KNOWN_ISSUES.md`.
+
+## Diagnostic env vars
+
+Set these to dump diagnostic output from the corresponding widget:
+
+- `ERIGUI_DEBUG_DOCK=1` — DockPanel tab-strip click routing
+- `ERIGUI_DEBUG_ACC=1` — Accordion keyboard nav events
+- `ERIGUI_DEBUG_SPIN=1` — SpinBox edit/typing state (re-enable by
+  uncommenting the `eprintln!` in `spin_box.rs` if removed)
 
 ## Getting Started
 

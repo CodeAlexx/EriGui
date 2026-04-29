@@ -284,8 +284,15 @@ impl Widget for ListView {
             context.fill_rect(g.thumb);
         }
 
-        // Draw border
-        context.set_color(theme.colors.border);
+        // Draw border. Switch to border_focus when focused so the user
+        // can tell which list is receiving keyboard input. Mirrors the
+        // same fix applied to TreeView in this commit.
+        let border_color = if self.state.focused {
+            theme.colors.border_focus
+        } else {
+            theme.colors.border
+        };
+        context.set_color(border_color);
         context.draw_rect(self.state.bounds);
     }
 

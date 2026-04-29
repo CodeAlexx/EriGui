@@ -456,8 +456,16 @@ impl Widget for TreeView {
             ));
         }
 
-        // Draw border
-        context.set_color(theme.colors.border);
+        // Draw border. Switch to border_focus when focused so the user
+        // can tell which list/tree is receiving keyboard input — without
+        // it, focus was a silent state and Up/Down/Enter "did nothing"
+        // to the eye even when wired correctly.
+        let border_color = if self.state.focused {
+            theme.colors.border_focus
+        } else {
+            theme.colors.border
+        };
+        context.set_color(border_color);
         context.draw_rect(self.state.bounds);
     }
 

@@ -889,10 +889,33 @@ impl DockPanel {
                 active_index,
             } => {
                 // Handle tab control events
+                let before = tab_control.get_active_tab();
                 let tab_result = tab_control.handle_event(event, theme);
+                let after = tab_control.get_active_tab();
+
+                // ERIGUI_DEBUG_DOCK=1 dumps tab-control click outcomes so a
+                // user-reported "click does nothing" can be diagnosed
+                // without rebuilding. Set the env var, run kitchen_sink,
+                // click the secondary.rs tab, watch stderr.
+                if std::env::var("ERIGUI_DEBUG_DOCK").is_ok() {
+                    if let Event::MouseButton(mb) = event {
+                        if mb.pressed {
+                            eprintln!(
+                                "[dock] click@({},{}) tabs={:?} bounds={:?} active before={:?} after={:?} consumed={:?}",
+                                mb.position.x,
+                                mb.position.y,
+                                panels,
+                                tab_control.bounds(),
+                                before,
+                                after,
+                                tab_result,
+                            );
+                        }
+                    }
+                }
 
                 // Update active index if tab changed
-                if let Some(new_active) = tab_control.get_active_tab() {
+                if let Some(new_active) = after {
                     if new_active != *active_index {
                         *active_index = new_active;
                         return EventResult::Consumed;

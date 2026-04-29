@@ -163,9 +163,15 @@ impl TabControl {
     fn get_tab_rect(&self, index: usize) -> Rect {
         let total_tabs = self.tabs.len() as i32;
         let available_width = self.state.bounds.width();
-        let tab_width = (available_width / total_tabs)
-            .max(self.min_tab_width)
-            .min(self.max_tab_width);
+        // Stretch tabs to fill the strip when there are few tabs in a wide
+        // strip. Pre-fix this clamped at max_tab_width even when that left
+        // hundreds of pixels of dead space at the right edge of the strip,
+        // which (HANDOFF_2026-04-28 dock debug) caused users to click an
+        // empty area thinking it was the active tab.
+        // min_tab_width still floors per-tab width when many tabs would
+        // otherwise pack below readable size; the strip is then visually
+        // overflowed at the right (no horizontal scrolling implemented).
+        let tab_width = (available_width / total_tabs).max(self.min_tab_width);
 
         Rect::new(
             self.state.bounds.x() + index as i32 * tab_width,

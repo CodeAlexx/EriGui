@@ -405,6 +405,12 @@ impl Widget for SpinBox {
             // separately from text. Without this branch, typing into a
             // spin box does nothing on real GUIs.
             Event::TextInput(te) => {
+                if std::env::var("ERIGUI_DEBUG_SPIN").is_ok() {
+                    eprintln!(
+                        "[spin] editing={} textinput text={:?}",
+                        self.is_editing, te.text
+                    );
+                }
                 if self.is_editing {
                     let mut changed = false;
                     for ch in te.text.chars() {
@@ -428,24 +434,41 @@ impl Widget for SpinBox {
 
             Event::KeyPress(key_event) => {
                 if self.is_editing {
-                    // Convert Key::Num0..Num9 to the corresponding char.
-                    // Some platforms (notably some Wayland configs) deliver
+                    // ERIGUI_DEBUG_SPIN=1 dumps every keypress that lands on
+                    // an editing spin box. Use this to confirm whether the
+                    // platform is delivering events at all and which Key
+                    // variant carries the digit.
+                    if std::env::var("ERIGUI_DEBUG_SPIN").is_ok() {
+                        eprintln!(
+                            "[spin] editing=true keypress key={:?} repeat={}",
+                            key_event.key, key_event.repeat
+                        );
+                    }
+                    // Convert Key::Num0..Num9 / NumpadNum0..NumpadNum9 /
+                    // Period / Minus to the corresponding char. Some
+                    // platforms (notably some Wayland configs) deliver
                     // KeyboardInput without populating event.text, so the
                     // translator falls through to KeyPress instead of
                     // emitting TextInput. Without this branch the user sees
                     // a caret but typing digits does nothing — kitchen_sink
                     // bug reported 2026-04-28.
                     let digit_ch: Option<char> = match key_event.key {
-                        Key::Num0 => Some('0'),
-                        Key::Num1 => Some('1'),
-                        Key::Num2 => Some('2'),
-                        Key::Num3 => Some('3'),
-                        Key::Num4 => Some('4'),
-                        Key::Num5 => Some('5'),
-                        Key::Num6 => Some('6'),
-                        Key::Num7 => Some('7'),
-                        Key::Num8 => Some('8'),
-                        Key::Num9 => Some('9'),
+                        Key::Num0 | Key::NumpadNum0 => Some('0'),
+                        Key::Num1 | Key::NumpadNum1 => Some('1'),
+                        Key::Num2 | Key::NumpadNum2 => Some('2'),
+                        Key::Num3 | Key::NumpadNum3 => Some('3'),
+                        Key::Num4 | Key::NumpadNum4 => Some('4'),
+                        Key::Num5 | Key::NumpadNum5 => Some('5'),
+                        Key::Num6 | Key::NumpadNum6 => Some('6'),
+                        Key::Num7 | Key::NumpadNum7 => Some('7'),
+                        Key::Num8 | Key::NumpadNum8 => Some('8'),
+                        Key::Num9 | Key::NumpadNum9 => Some('9'),
+                        Key::Period | Key::NumpadDecimal => Some('.'),
+                        Key::Minus | Key::NumpadSubtract
+                            if self.text_value.is_empty() =>
+                        {
+                            Some('-')
+                        }
                         _ => None,
                     };
                     if let Some(ch) = digit_ch {

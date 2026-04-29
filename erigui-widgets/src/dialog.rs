@@ -180,11 +180,26 @@ impl Widget for Dialog {
         // Theme-scale the dialog footprint. Mojo-port hardcoded
         // min_width=300 / height=150 were sized for a 14px font; at
         // HiDPI 2x those bounds cropped the buttons and message.
+        // Width tracks the LONGEST message line, not the total length —
+        // pre-fix a multi-line message was over-budgeted in width but
+        // also drawn as a single line, so the actual rendered text
+        // overflowed.
         let font = theme.typography.font_size_base;
         let pad = theme.spacing.padding.left.max(8);
-        let text_width = self.message.len() as i32 * font / 2;
+        let longest_line_chars = self
+            .message
+            .split('\n')
+            .map(|l| l.chars().count() as i32)
+            .max()
+            .unwrap_or(0);
+        let text_width = longest_line_chars * font / 2;
         let min_width = (font * 22).max(text_width + pad * 4);
-        let height = font * 11;
+        // Grow height with line count. Floor at font*11 keeps the
+        // existing single-message footprint; multi-line messages add
+        // line_h per extra row.
+        let line_h = (font as f32 * theme.typography.line_height) as i32;
+        let line_count = self.message.split('\n').count() as i32;
+        let height = (font * 11).max(line_h * line_count + font * 6);
         Size::new(min_width, height)
     }
 
@@ -270,15 +285,21 @@ impl Widget for Dialog {
             2,
         );
 
-        // Draw message
+        // Draw message. Split on '\n' so multi-line strings render as
+        // multiple rows instead of drawing literal control bytes (which
+        // appeared as box glyphs in the freetype fallback). Vertically
+        // center the block.
         let content_rect = self.get_content_rect();
         context.set_color(theme.colors.text);
-        let message_y = content_rect.center().y - theme.typography.font_size_base / 2;
-        context.draw_text(
-            &self.message,
-            Point::new(content_rect.x() + 20, message_y),
-            theme.typography.font_size_base,
-        );
+        let font = theme.typography.font_size_base;
+        let line_h = (font as f32 * theme.typography.line_height) as i32;
+        let lines: Vec<&str> = self.message.split('\n').collect();
+        let block_h = line_h * lines.len() as i32;
+        let mut line_y = content_rect.center().y - block_h / 2;
+        for line in &lines {
+            context.draw_text(line, Point::new(content_rect.x() + 20, line_y), font);
+            line_y += line_h;
+        }
 
         // Draw buttons
         for (i, (_button, text)) in self.buttons.iter().enumerate() {

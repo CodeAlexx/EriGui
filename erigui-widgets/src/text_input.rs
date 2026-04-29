@@ -686,6 +686,21 @@ impl Widget for TextInput {
                         // Bug ti15: Tab is focus navigation. Pass through.
                         return EventResult::Ignored;
                     }
+                    Key::Space => {
+                        // Translator emits KeyPress(Space) instead of
+                        // TextInput(" ") so navigational widgets get it
+                        // (Accordion, Checkbox, etc.). For TextInput,
+                        // Space is just a literal character.
+                        if self.selection_start.is_some() {
+                            self.delete_selection();
+                        }
+                        self.insert_char(' ', theme);
+                        if let Some(cb) = &mut self.on_change {
+                            cb(&self.text);
+                        }
+                        self.ensure_cursor_visible(theme);
+                        return EventResult::Consumed;
+                    }
                     Key::Enter => {
                         if let Some(cb) = &mut self.on_submit {
                             cb(&self.text);

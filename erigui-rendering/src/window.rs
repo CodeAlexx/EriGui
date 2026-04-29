@@ -89,19 +89,26 @@ impl EventTranslator {
                 };
                 match event.state {
                     ElementState::Pressed => {
-                        // Emit text input alongside the keypress when the key produced a
-                        // character. This keeps the behaviour of pre-0.29 ReceivedCharacter
-                        // events without a separate event variant.
-                        if let Some(text) = event.text.as_ref() {
-                            // Some "text" payloads are control characters (e.g. \x08 backspace,
-                            // \r enter, \x1b esc). Filter those out so widgets only see real
-                            // typed characters.
-                            let filtered: String = text
-                                .chars()
-                                .filter(|c| !c.is_control())
-                                .collect();
-                            if !filtered.is_empty() {
-                                return Some(Event::TextInput(TextInputEvent { text: filtered }));
+                        // Space is an activation key for buttons, checkboxes,
+                        // accordions, dialog buttons, etc. — they need it as
+                        // KeyPress(Key::Space). Pre-fix the translator
+                        // emitted TextInput(" ") because event.text is the
+                        // printable " ", and KeyPress was suppressed.
+                        // Widgets that want a literal ' ' inserted (TextInput,
+                        // TextArea) handle Key::Space explicitly.
+                        let space_pressed = matches!(key, Key::Space);
+                        if !space_pressed {
+                            if let Some(text) = event.text.as_ref() {
+                                // Some "text" payloads are control characters (e.g. \x08 backspace,
+                                // \r enter, \x1b esc). Filter those out so widgets only see real
+                                // typed characters.
+                                let filtered: String = text
+                                    .chars()
+                                    .filter(|c| !c.is_control())
+                                    .collect();
+                                if !filtered.is_empty() {
+                                    return Some(Event::TextInput(TextInputEvent { text: filtered }));
+                                }
                             }
                         }
                         Some(Event::KeyPress(KeyPressEvent {

@@ -1263,6 +1263,13 @@ impl Widget for TextArea {
                         }
                         return EventResult::Ignored;
                     }
+                    Key::Space => {
+                        // Translator now emits KeyPress(Space) instead of
+                        // TextInput(" ") so navigational widgets can react.
+                        // For TextArea, Space is a literal character.
+                        self.insert_char(' ');
+                        return EventResult::Consumed;
+                    }
                     // Bug ta22: case-insensitive Ctrl+ shortcuts. Match
                     // both lowercase and uppercase variants so CapsLock /
                     // Shift don't break the bindings.

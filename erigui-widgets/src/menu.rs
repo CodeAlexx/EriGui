@@ -596,8 +596,34 @@ impl Widget for MenuBar {
         )
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Recompute dropdown widths from the actual font metric so HiDPI
+        // doesn't end up with the shortcut column running into the label
+        // column ("Save As... Ctrl+Shift+S" overflowing the dropdown).
+        // Pre-fix `add_menu` used hardcoded 8 px / char which is right
+        // at font 14 but undersized at font 28.
+        let font = theme.typography.font_size_base;
+        let label_per_char = (font * 6) / 10;
+        let shortcut_per_char = (font * 5) / 10;
+        let pad = self.padding.max(theme.spacing.padding.left.max(8));
+        for (i, menu) in self.menu_items.iter().enumerate() {
+            let mut menu_width = self.dropdown_default_width;
+            for item in &menu.submenu_items {
+                if item.is_separator {
+                    continue;
+                }
+                let text_len = char_count(&item.text) * label_per_char;
+                let shortcut_len = char_count(&item.shortcut) * shortcut_per_char;
+                let total = text_len + shortcut_len + pad * 6;
+                if total > menu_width {
+                    menu_width = total;
+                }
+            }
+            if i < self.dropdown_widths.len() {
+                self.dropdown_widths[i] = menu_width;
+            }
+        }
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {

@@ -164,11 +164,11 @@ impl App {
 
     fn layout_widgets(&mut self, size: Size) {
         if let Some(root) = self.widget_manager.get_mut(self.root_container) {
-            let theme = Theme::light();
+            let theme = Theme::dark();
             root.layout(Rect::from_origin_size(Point::ZERO, size), &theme);
         }
 
-        let theme = Theme::light();
+        let theme = Theme::dark();
         self.layout_children(self.root_container, &theme);
     }
 
@@ -287,7 +287,7 @@ impl App {
     }
 
     fn draw_widget(&self, widget_id: WidgetId, renderer: &mut Renderer) {
-        let theme = Theme::light();
+        let theme = Theme::dark();
 
         if let Some(widget) = self.widget_manager.get(widget_id) {
             widget.draw(renderer, &theme);
@@ -322,7 +322,7 @@ impl App {
 
     fn handle_event(&mut self, event: &erigui_core::Event) {
         let root_container = self.root_container;
-        let theme = Theme::light();
+        let theme = Theme::dark();
         self.route_event(root_container, event, &theme);
     }
 
@@ -393,7 +393,7 @@ fn main() -> anyhow::Result<()> {
             Event::AboutToWait => {
                 // Background must come from the same theme the labels
                 // use, otherwise dark text lands on dark fill (invisible).
-                let theme = Theme::light();
+                let theme = Theme::dark();
                 renderer.begin_frame(theme.colors.background);
                 app.draw_widget(app.root_container, &mut renderer);
                 // Second pass: dropdowns must paint on top of everything

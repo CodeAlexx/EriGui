@@ -371,6 +371,17 @@ impl Widget for SpinBox {
                 if mouse_event.button == MouseButton::Left {
                     if mouse_event.pressed {
                         if let Some(button) = self.button_from_point(mouse_event.position) {
+                            // If the user typed digits but didn't press
+                            // Enter, clicking an arrow must commit the
+                            // typed value first; otherwise increment/
+                            // decrement operates on the stale current
+                            // value. Reported in kitchen_sink: typed
+                            // "7777", clicked down -> got "41" because
+                            // the up/down used the original 42.
+                            if self.is_editing {
+                                self.is_editing = false;
+                                self.update_value_from_text();
+                            }
                             self.pressed_button = Some(button);
                             self.button_repeat_start = Some(Instant::now());
                             self.last_repeat = None;
@@ -405,12 +416,6 @@ impl Widget for SpinBox {
             // separately from text. Without this branch, typing into a
             // spin box does nothing on real GUIs.
             Event::TextInput(te) => {
-                if std::env::var("ERIGUI_DEBUG_SPIN").is_ok() {
-                    eprintln!(
-                        "[spin] editing={} textinput text={:?}",
-                        self.is_editing, te.text
-                    );
-                }
                 if self.is_editing {
                     let mut changed = false;
                     for ch in te.text.chars() {
@@ -434,16 +439,6 @@ impl Widget for SpinBox {
 
             Event::KeyPress(key_event) => {
                 if self.is_editing {
-                    // ERIGUI_DEBUG_SPIN=1 dumps every keypress that lands on
-                    // an editing spin box. Use this to confirm whether the
-                    // platform is delivering events at all and which Key
-                    // variant carries the digit.
-                    if std::env::var("ERIGUI_DEBUG_SPIN").is_ok() {
-                        eprintln!(
-                            "[spin] editing=true keypress key={:?} repeat={}",
-                            key_event.key, key_event.repeat
-                        );
-                    }
                     // Convert Key::Num0..Num9 / NumpadNum0..NumpadNum9 /
                     // Period / Minus to the corresponding char. Some
                     // platforms (notably some Wayland configs) deliver

@@ -376,7 +376,10 @@ impl Widget for NotificationManager {
         // and messages overflowed the box on the right edge.
         let font = theme.typography.font_size_base;
         let pad = theme.spacing.padding.top.max(8);
-        self.notification_width = font * 24;
+        // Wider default (was font*24). Long titles/messages still get
+        // clipped at draw time, but the box accommodates ~50 ascii chars
+        // before clipping kicks in.
+        self.notification_width = font * 30;
         self.notification_height = font * 4;
         self.margin = pad * 2;
         self.spacing = pad;
@@ -411,6 +414,13 @@ impl Widget for NotificationManager {
             // Draw border
             context.set_color(theme.colors.border);
             context.draw_rect(item.bounds);
+
+            // Clip the title/message/icon block to item.bounds so long
+            // strings don't bleed past the toast box on the right edge.
+            // Reported in kitchen_sink: "Wave-3 (4e745a0): clear() fires
+            // the close callback per item." extended past the visible
+            // area.
+            context.push_clip_rect(item.bounds);
 
             // Draw type indicator
             let type_color = self.get_type_color(item.notification.notification_type, theme);
@@ -523,6 +533,8 @@ impl Widget for NotificationManager {
                     theme.typography.font_size_small,
                 );
             }
+
+            context.pop_clip_rect();
         }
     }
 

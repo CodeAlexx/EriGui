@@ -21,6 +21,10 @@ pub struct SpinBox {
     last_repeat: Option<Instant>,
     on_value_changed: Option<Box<dyn FnMut(f32)>>,
     tooltip: Option<TooltipState>,
+    // Up/down button strip width. Mojo-port hardcoded 20 didn't scale on
+    // HiDPI; recomputed in layout() from font + padding so the button
+    // chrome stays roughly square (~ row height / 2).
+    button_width: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,6 +50,7 @@ impl SpinBox {
             last_repeat: None,
             on_value_changed: None,
             tooltip: None,
+            button_width: 20,
         };
         spin_box.update_text_from_value();
         spin_box
@@ -146,33 +151,30 @@ impl SpinBox {
     }
 
     fn get_text_rect(&self) -> Rect {
-        let button_width = 20;
         Rect::new(
             self.state.bounds.x(),
             self.state.bounds.y(),
-            self.state.bounds.width() - button_width,
+            self.state.bounds.width() - self.button_width,
             self.state.bounds.height(),
         )
     }
 
     fn get_up_button_rect(&self) -> Rect {
-        let button_width = 20;
         let button_height = self.state.bounds.height() / 2;
         Rect::new(
-            self.state.bounds.right() - button_width,
+            self.state.bounds.right() - self.button_width,
             self.state.bounds.y(),
-            button_width,
+            self.button_width,
             button_height,
         )
     }
 
     fn get_down_button_rect(&self) -> Rect {
-        let button_width = 20;
         let button_height = self.state.bounds.height() / 2;
         Rect::new(
-            self.state.bounds.right() - button_width,
+            self.state.bounds.right() - self.button_width,
             self.state.bounds.y() + button_height,
-            button_width,
+            self.button_width,
             button_height,
         )
     }
@@ -229,8 +231,14 @@ impl Widget for SpinBox {
         Size::new(120, theme.typography.font_size_base + 12)
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-scale button strip width so HiDPI doesn't leave a 20px
+        // sliver for the up/down chrome. Roughly square against the
+        // half-height button rect.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.left.max(4);
+        self.button_width = (font + pad).max(20);
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
@@ -262,17 +270,23 @@ impl Widget for SpinBox {
             theme.colors.text_disabled
         });
 
-        let text = if self.is_editing {
-            &self.text_value
-        } else {
-            &self.text_value
-        };
         let text_y = text_rect.center().y - theme.typography.font_size_base / 2;
-        context.draw_text(
-            text,
-            Point::new(text_rect.x() + 8, text_y),
-            theme.typography.font_size_base,
-        );
+        let text_x = text_rect.x() + 8;
+        let font = theme.typography.font_size_base;
+        context.draw_text(&self.text_value, Point::new(text_x, text_y), font);
+
+        // Edit-mode caret. Without this, the only feedback that the click
+        // landed in the value area is a border-color change, which is
+        // easy to miss on a dark theme. The caret sits just past the
+        // last digit and matches the text color.
+        if self.is_editing {
+            let text_w = context.measure_text(&self.text_value, font).width;
+            let caret_x = text_x + text_w + 1;
+            let top = text_rect.y() + 4;
+            let bottom = text_rect.bottom() - 4;
+            context.set_color(theme.colors.text);
+            context.draw_line(Point::new(caret_x, top), Point::new(caret_x, bottom), 1);
+        }
 
         // Draw up button
         let up_rect = self.get_up_button_rect();

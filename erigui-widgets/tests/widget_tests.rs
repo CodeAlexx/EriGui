@@ -1827,6 +1827,31 @@ fn combo_box_tooltip_hides_on_mouse_press() {
 }
 
 #[test]
+fn spin_box_click_on_value_area_enters_edit_mode() {
+    // Regression: clicking the "42" value area should set is_editing
+    // (exposed via is_focused()). Pre-fix the click could miss because
+    // get_text_rect used a hardcoded button_width of 20 that didn't
+    // scale with the theme.
+    let theme = default_theme();
+    let mut sb = SpinBox::new(test_id(), 0.0, 1000.0, 42.0);
+    sb.layout(Rect::new(0, 0, 148, 34), &theme);
+    assert!(!sb.is_focused(), "should not start in edit mode");
+
+    // Click well inside the value area (left of the up/down strip).
+    sb.handle_event(&left_press_event(Point::new(40, 17)), &theme);
+    assert!(
+        sb.is_focused(),
+        "click in value area must enter edit mode (is_editing == true)"
+    );
+
+    // Up button on the right edge should still increment, not toggle edit.
+    let up_x = sb.bounds().right() - 5;
+    let up_y = sb.bounds().y() + 5;
+    sb.handle_event(&left_press_event(Point::new(up_x, up_y)), &theme);
+    assert_eq!(sb.value(), 43.0, "click on up button must increment");
+}
+
+#[test]
 fn spin_box_tooltip_hides_on_mouse_press() {
     let theme = default_theme();
     let mut sb = SpinBox::new(test_id(), 0.0, 100.0, 50.0)

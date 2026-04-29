@@ -513,6 +513,12 @@ impl Widget for Accordion {
                     if header_rect.contains(*position) && panel.enabled {
                         if *pressed {
                             self.pressed_panel = Some(i);
+                            // Set focused_panel so subsequent Up/Down/Enter/
+                            // Space keyboard events (gated on
+                            // focused_panel = Some) actually fire. Without
+                            // this, clicking a header to "focus" it had no
+                            // effect on the kbd path — Space appeared dead.
+                            self.focused_panel = Some(i);
                         } else if self.pressed_panel == Some(i) {
                             self.toggle_panel(i);
                             self.pressed_panel = None;

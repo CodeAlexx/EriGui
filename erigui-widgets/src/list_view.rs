@@ -213,8 +213,15 @@ impl Widget for ListView {
         Size::new(constraints.max_width.unwrap_or(200), height)
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-scale row height. Mojo-port hardcoded 24 left rows
+        // squashed at HiDPI, causing the next row's text to bleed into
+        // the previous row. Pattern: font + padding gives a row tall
+        // enough for a glyph plus chrome at any scale.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(4);
+        self.item_height = (font + pad * 2).max(24);
         // Re-clamp in case the bounds shrank below current scroll offset.
         self.clamp_scroll();
     }

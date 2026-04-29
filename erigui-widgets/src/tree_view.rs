@@ -392,8 +392,15 @@ impl Widget for TreeView {
         )
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-scale row height. Same fix as ListView. Pre-fix hardcoded
+        // 24 squashed rows at HiDPI; "tests/" rendered into the previous
+        // row's space because text_y from row-center landed below the
+        // row boundary.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(4);
+        self.item_height = (font + pad * 2).max(24);
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {

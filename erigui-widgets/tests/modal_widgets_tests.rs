@@ -356,25 +356,36 @@ fn dialog_layout_sets_bounds() {
 }
 
 #[test]
-fn dialog_measure_floors_width_at_300() {
-    // Short message -> 300px floor.
+fn dialog_measure_floors_width_for_short_message() {
+    // Short message -> floor-driven width. Pre-fix the floor was a
+    // hardcoded 300px; HANDOFF_2026-04-28 #4 theme-scales it to a
+    // multiple of font_size_base so the floor grows at HiDPI. At the
+    // default theme (font 14), the floor is in the 300-310 band.
     let theme = default_theme();
     let d = Dialog::new(test_id(), "T", "Hi");
     let size = d.measure(&LayoutConstraints::UNBOUNDED, &theme);
-    assert_eq!(size.width, 300);
-    assert_eq!(size.height, 150);
+    assert!(
+        (300..=320).contains(&size.width),
+        "short message must hit the theme-scaled floor (got {})",
+        size.width
+    );
+    assert!(
+        size.height >= 150,
+        "default-theme dialog must be at least 150 tall (got {})",
+        size.height
+    );
 }
 
 #[test]
 fn dialog_measure_grows_with_message() {
-    // Long message -> width = max(300, len * font_size_base / 2 + 40).
+    // Long message drives width above the floor.
     let theme = default_theme();
+    let short_size = Dialog::new(test_id(), "T", "Hi").measure(&LayoutConstraints::UNBOUNDED, &theme);
     let long = "x".repeat(200);
-    let d = Dialog::new(test_id(), "T", long);
-    let size = d.measure(&LayoutConstraints::UNBOUNDED, &theme);
+    let size = Dialog::new(test_id(), "T", long).measure(&LayoutConstraints::UNBOUNDED, &theme);
     assert!(
-        size.width > 300,
-        "long message should drive width above the 300 floor"
+        size.width > short_size.width,
+        "long message should drive width above the short-message floor"
     );
 }
 

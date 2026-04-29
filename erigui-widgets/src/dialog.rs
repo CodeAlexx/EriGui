@@ -38,6 +38,9 @@ pub struct Dialog {
     title_height: i32,
     button_height: i32,
     button_width: i32,
+    // Title-bar close glyph size. Hardcoded 20 was duplicated in draw
+    // and event paths and was a pixel-sized hit target at HiDPI.
+    close_size: i32,
     on_button_clicked: Option<Box<dyn FnMut(DialogButton)>>,
 }
 
@@ -58,6 +61,7 @@ impl Dialog {
             title_height: 30,
             button_height: 30,
             button_width: 80,
+            close_size: 20,
             on_button_clicked: None,
         }
     }
@@ -173,9 +177,15 @@ impl Widget for Dialog {
     }
 
     fn measure(&self, _constraints: &LayoutConstraints, theme: &Theme) -> Size {
-        let text_width = self.message.len() as i32 * theme.typography.font_size_base / 2;
-        let min_width = 300.max(text_width + 40);
-        Size::new(min_width, 150)
+        // Theme-scale the dialog footprint. Mojo-port hardcoded
+        // min_width=300 / height=150 were sized for a 14px font; at
+        // HiDPI 2x those bounds cropped the buttons and message.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.left.max(8);
+        let text_width = self.message.len() as i32 * font / 2;
+        let min_width = (font * 22).max(text_width + pad * 4);
+        let height = font * 11;
+        Size::new(min_width, height)
     }
 
     fn layout(&mut self, rect: Rect, theme: &Theme) {
@@ -188,6 +198,10 @@ impl Widget for Dialog {
         let pad = theme.spacing.padding.top.max(8);
         self.title_height = font + pad * 2;
         self.button_height = font + pad * 2;
+        // Close glyph: roughly font-cap, large enough to be a real
+        // tap target at every theme scale. Was hardcoded 20 in two
+        // places (draw + event); now stored once.
+        self.close_size = font.max(16);
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {
@@ -235,7 +249,7 @@ impl Widget for Dialog {
         );
 
         // Draw close button
-        let close_size = 20;
+        let close_size = self.close_size;
         let close_rect = Rect::new(
             title_rect.right() - close_size - 5,
             title_rect.y() + (title_rect.height() - close_size) / 2,
@@ -331,7 +345,7 @@ impl Widget for Dialog {
                         let title_rect = self.get_title_rect();
 
                         // Check close button
-                        let close_size = 20;
+                        let close_size = self.close_size;
                         let close_rect = Rect::new(
                             title_rect.right() - close_size - 5,
                             title_rect.y() + (title_rect.height() - close_size) / 2,

@@ -230,8 +230,13 @@ impl Widget for RadioButton {
         }
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-scale the radio glyph. Mojo-port hardcoded 16 was a
+        // tiny dot at HiDPI scale 2x. Roughly matches the font cap so
+        // the radio sits in the row and is a real tap target.
+        let font = theme.typography.font_size_base;
+        self.button_size = font.max(16);
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {

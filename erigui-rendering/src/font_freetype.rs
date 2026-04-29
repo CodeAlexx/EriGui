@@ -112,6 +112,7 @@ impl FontRenderer {
                     if face.load_char(ch as usize, LoadFlag::RENDER).is_ok() {
                         let glyph = face.glyph();
                         let bitmap = glyph.bitmap();
+                        let advance = (glyph.advance().x >> 6) as i32;
 
                         if bitmap.width() > 0 && bitmap.rows() > 0 {
                             let texture_id = self.create_texture(
@@ -121,17 +122,29 @@ impl FontRenderer {
                                 bitmap.pitch(),
                             );
 
-                            let _metrics = glyph.metrics();
                             Some(GlyphInfo {
                                 texture_id,
                                 width: bitmap.width(),
                                 height: bitmap.rows(),
-                                advance: (glyph.advance().x >> 6) as i32,
+                                advance,
                                 bearing_x: glyph.bitmap_left(),
                                 bearing_y: glyph.bitmap_top(),
                             })
                         } else {
-                            None
+                            // Zero-bitmap glyphs (' ', '\t', etc.) have no
+                            // visual but DO have an advance — cache them
+                            // with texture_id=0 so the cursor still moves.
+                            // Without this, every space in rendered text
+                            // collapses to zero width and words run
+                            // together ("Basic Inputs" -> "BasicInputs").
+                            Some(GlyphInfo {
+                                texture_id: 0,
+                                width: 0,
+                                height: 0,
+                                advance,
+                                bearing_x: 0,
+                                bearing_y: 0,
+                            })
                         }
                     } else {
                         None
@@ -143,18 +156,20 @@ impl FontRenderer {
                 }
             }
 
-            // Draw glyph if it exists
+            // Draw glyph if it exists. Zero-texture entries (e.g., ' ')
+            // have no bitmap to draw but still advance the cursor.
             if let Some(glyph_info) = self.glyph_cache.get(&key) {
-                let glyph_x = cursor_x + glyph_info.bearing_x as f32;
-                let glyph_y = baseline_y - glyph_info.bearing_y as f32;
+                if glyph_info.texture_id != 0 {
+                    let glyph_x = cursor_x + glyph_info.bearing_x as f32;
+                    let glyph_y = baseline_y - glyph_info.bearing_y as f32;
 
-                self.draw_glyph(
-                    gl,
-                    glyph_info,
-                    Point::new(glyph_x as i32, glyph_y as i32),
-                    viewport_size,
-                );
-
+                    self.draw_glyph(
+                        gl,
+                        glyph_info,
+                        Point::new(glyph_x as i32, glyph_y as i32),
+                        viewport_size,
+                    );
+                }
                 cursor_x += glyph_info.advance as f32;
             }
         }

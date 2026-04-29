@@ -1403,3 +1403,95 @@ fn dock_panel_remove_collapses_split_when_one_side_emptied() {
     );
     dp.layout(Rect::new(0, 0, 800, 600), &theme);
 }
+
+#[test]
+fn dock_panel_tab_strip_click_switches_active_panel() {
+    // HANDOFF_2026-04-28 #2: clicking the "secondary.rs" tab in Tab 5
+    // of kitchen_sink doesn't switch panels. Reproduce the same dock
+    // tree (Center "main" -> Right -> Bottom -> Center "secondary") and
+    // simulate a click on the second tab in the first leaf-Tabs node.
+    // The active_index of that leaf must flip from 0 to 1, AND the
+    // change must survive a subsequent layout (which calls set_tabs).
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+
+    dp.add_panel(
+        DockablePanel::new("main", "main.rs", boxed_label("main")),
+        DockPosition::Center,
+    );
+    dp.add_panel(
+        DockablePanel::new("sidebar", "Sidebar", boxed_label("side")),
+        DockPosition::Right,
+    );
+    dp.add_panel(
+        DockablePanel::new("console", "Console", boxed_label("con")),
+        DockPosition::Bottom,
+    );
+    dp.add_panel(
+        DockablePanel::new("secondary", "secondary.rs", boxed_label("sec")),
+        DockPosition::Center,
+    );
+
+    // Mirror kitchen_sink's Containers tab layout: dock placed at a
+    // non-zero origin inside the content area. Reproduces the actual
+    // user-facing case where bounds are not (0,0).
+    let bounds = Rect::new(8, 88, 600, 500);
+    dp.layout(bounds, &theme);
+
+    assert_eq!(
+        dp.first_leaf_panels_for_test(),
+        vec!["main".to_string(), "secondary".to_string()],
+        "precondition: first leaf has [main, secondary]"
+    );
+    assert_eq!(
+        dp.first_leaf_active_index_for_test(),
+        Some(0),
+        "precondition: starts on the first tab"
+    );
+
+    // First leaf-Tabs lives at: V-split ratio 0.7 of 500 = 350 high
+    // (top half), H-split ratio 0.7 of 600 = 420 wide (left half).
+    // First leaf rect = (8, 88, 420, 350). Tab strip is at top with
+    // tab_height = font + pad*2 = 14 + 16 = 30. Two tabs: tab_width =
+    // (420/2).max(84).min(196) = 196. tab[1] starts at x=8+196=204.
+    // Click at (250, 100) hits the second tab.
+    //
+    // Issue the mouse-move first to cache hover position; the actual
+    // GUI loop does this and downstream hover_close gating depends
+    // on it.
+    let move_to_secondary = Event::MouseMove(MouseMoveEvent {
+        position: Point::new(250, 100),
+        delta: Point::ZERO,
+        modifiers: Modifiers::empty(),
+    });
+    let _ = dp.handle_event(&move_to_secondary, &theme);
+
+    let click_secondary = Event::MouseButton(MouseButtonEvent {
+        button: MouseButton::Left,
+        position: Point::new(250, 100),
+        pressed: true,
+        modifiers: Modifiers::empty(),
+    });
+    let res = dp.handle_event(&click_secondary, &theme);
+    assert_eq!(
+        res,
+        EventResult::Consumed,
+        "tab-strip click on secondary.rs must be consumed"
+    );
+    assert_eq!(
+        dp.first_leaf_active_index_for_test(),
+        Some(1),
+        "click on second tab must switch active_index to 1"
+    );
+
+    // Now re-layout (mimics what kitchen_sink does after every event).
+    // The handoff suspects this loses the active-tab change because
+    // set_tabs gets called with the same items each frame. Verify
+    // active_index survives.
+    dp.layout(bounds, &theme);
+    assert_eq!(
+        dp.first_leaf_active_index_for_test(),
+        Some(1),
+        "active_index must survive a layout (set_tabs round-trip)"
+    );
+}

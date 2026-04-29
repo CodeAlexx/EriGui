@@ -127,6 +127,20 @@ impl TabControl {
     }
 
     pub fn set_tabs(&mut self, items: Vec<TabItem>) {
+        // Idempotent: if `items` matches the existing tab list (same
+        // length, same titles in order), skip the clear/rebuild. The
+        // DockPanel calls this on every layout and rebuilding cleared
+        // ancillary per-tab state we want to preserve. Comparing titles
+        // is sufficient because TabItem stores no other identity beyond
+        // (title, id) and id isn't propagated into TabPage.
+        let unchanged = items.len() == self.tabs.len()
+            && items
+                .iter()
+                .zip(self.tabs.iter())
+                .all(|(item, tab)| item.title == tab.title);
+        if unchanged {
+            return;
+        }
         self.tabs.clear();
         for item in items {
             let tab = TabPage::new(item.title);

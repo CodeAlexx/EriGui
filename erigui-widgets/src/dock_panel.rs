@@ -299,6 +299,21 @@ impl DockPanel {
         walk(&self.root_node)
     }
 
+    /// Test-only: active panel index of the first Tabs leaf reachable
+    /// via `Split.first`. Returns `None` if no Tabs leaf is reachable.
+    /// Used to verify a tab-strip click switches the active panel.
+    #[doc(hidden)]
+    pub fn first_leaf_active_index_for_test(&self) -> Option<usize> {
+        fn walk(node: &DockNode) -> Option<usize> {
+            match node {
+                DockNode::Tabs { active_index, .. } => Some(*active_index),
+                DockNode::Split { first, .. } => walk(first),
+                DockNode::Empty => None,
+            }
+        }
+        walk(&self.root_node)
+    }
+
     /// Push `panel_id` onto the first Tabs leaf reachable from `node`,
     /// descending into `Split.first` recursively. If the tree contains
     /// no Tabs leaf at all (only nested Splits ending in Empty — which

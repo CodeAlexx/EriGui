@@ -213,26 +213,17 @@ impl DockPanel {
                 // Add to existing tree based on position
                 match position {
                     DockPosition::Center => {
-                        // Add as tab to root. Center is only valid when
-                        // the root is a Tabs node; on a Split root this
-                        // used to silently no-op (and leak the panel
-                        // entry recorded in `self.panels`). Panic with a
-                        // clear message instead -- hosts must choose a
-                        // specific position or rebuild the layout.
-                        match &mut self.root_node {
-                            DockNode::Tabs { panels, .. } => {
-                                panels.push(panel_id);
-                            }
-                            DockNode::Split { .. } => {
-                                panic!(
-                                    "Cannot add Center panel to a Split root - choose a specific position (Left/Right/Top/Bottom/Floating) or detach existing layout first"
-                                );
-                            }
-                            DockNode::Empty => {
-                                // Unreachable: outer match guarded on != Empty.
-                                unreachable!("DockNode::Empty handled in outer arm");
-                            }
-                        }
+                        // Add as tab. If root is a Tabs node, append
+                        // directly. If root is a Split, descend into the
+                        // first (left/top) child recursively until we
+                        // hit a Tabs leaf, then append there. This
+                        // matches how every production dock-panel system
+                        // (VS Code, JetBrains, Eclipse) handles a Center
+                        // add against a non-trivial layout: the "main"
+                        // panel area is conventionally the first leaf.
+                        // Hosts that want a specific destination should
+                        // pass Right/Left/Top/Bottom/Floating explicitly.
+                        Self::push_tab_to_first_leaf(&mut self.root_node, panel_id);
                     }
                     DockPosition::Left => {
                         let old_root = std::mem::replace(&mut self.root_node, DockNode::Empty);
@@ -288,6 +279,49 @@ impl DockPanel {
                     }
                     _ => {}
                 }
+            }
+        }
+    }
+
+    /// Test-only: walk down `Split.first` until a Tabs leaf, return the
+    /// panel-ids in order. Returns an empty Vec if the tree has no
+    /// reachable Tabs leaf via the first-child chain (only Splits and
+    /// Empty). Used to verify Center-add-to-Split-root descent.
+    #[doc(hidden)]
+    pub fn first_leaf_panels_for_test(&self) -> Vec<String> {
+        fn walk(node: &DockNode) -> Vec<String> {
+            match node {
+                DockNode::Tabs { panels, .. } => panels.clone(),
+                DockNode::Split { first, .. } => walk(first),
+                DockNode::Empty => Vec::new(),
+            }
+        }
+        walk(&self.root_node)
+    }
+
+    /// Push `panel_id` onto the first Tabs leaf reachable from `node`,
+    /// descending into `Split.first` recursively. If the tree contains
+    /// no Tabs leaf at all (only nested Splits ending in Empty — which
+    /// shouldn't happen with the current `add_to_dock_tree` paths),
+    /// the panel is dropped on the floor and the call is a no-op. The
+    /// outer caller has already recorded the panel in `self.panels`,
+    /// so a no-op here would be a silent leak; we instead initialize
+    /// the first Empty we find into a Tabs node, which matches the
+    /// behavior `add_to_dock_tree` uses for an empty root.
+    fn push_tab_to_first_leaf(node: &mut DockNode, panel_id: String) {
+        match node {
+            DockNode::Tabs { panels, .. } => {
+                panels.push(panel_id);
+            }
+            DockNode::Split { first, .. } => {
+                Self::push_tab_to_first_leaf(first.as_mut(), panel_id);
+            }
+            DockNode::Empty => {
+                *node = DockNode::Tabs {
+                    panels: vec![panel_id],
+                    active_index: 0,
+                    tab_control: TabControl::new(WidgetId::default()),
+                };
             }
         }
     }

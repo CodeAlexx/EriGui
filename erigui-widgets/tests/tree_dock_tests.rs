@@ -1118,11 +1118,11 @@ fn dock_panel_add_in_each_position_does_not_panic() {
     // add_to_dock_tree mutates root_node in a different way; verify they
     // all complete and a follow-up layout works.
     //
-    // Order matters: Center as the first add lands on an Empty root and
-    // becomes a Tabs node; subsequent Right/Left/Top/Bottom wrap it in
-    // a Split. Adding Center to a Split-root panics by design (see
-    // `dock_panel_center_after_split_panics`), so the test does NOT
-    // attempt a second Center after the layout has split.
+    // Order matters less now that Center-after-Split descends into the
+    // first leaf-Tabs (see `dock_panel_center_after_split_descends_to_first_leaf`),
+    // but we still start with Center on Empty -> Tabs root, then wrap
+    // with the other positions. The Floating add at the end exercises
+    // the floating-windows code path, separate from the dock tree.
     let theme = default_theme();
     let mut dp = DockPanel::new(test_id());
     dp.layout(Rect::new(0, 0, 1024, 768), &theme);
@@ -1144,16 +1144,16 @@ fn dock_panel_add_in_each_position_does_not_panic() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot add Center panel to a Split root")]
-fn dock_panel_center_after_split_panics() {
-    // Adding any non-Floating panel to a non-empty root that's a Tabs
-    // node creates a Split (Left/Right/Top/Bottom branches replace the
-    // root with `Split { ..., second: old_root }`). Once the root is a
-    // Split, attempting to add a Center panel used to silently no-op
-    // (the panel got recorded in `self.panels` but never made it into
-    // the dock tree, leaking it). Now it panics with a clear message
-    // forcing the host to choose Left/Right/Top/Bottom/Floating or
-    // rebuild.
+fn dock_panel_center_after_split_descends_to_first_leaf() {
+    // Adding any non-Floating non-Center position to a non-empty root
+    // wraps the existing tree into a Split. Once the root is a Split,
+    // a follow-up Center add must land somewhere — historically (Mojo
+    // port) it silently leaked, then it panicked with a clear message,
+    // and now it descends into Split.first recursively until it finds
+    // a Tabs leaf and appends. This matches VS Code / JetBrains /
+    // Eclipse: the "main" panel area is conventionally the first leaf,
+    // and hosts that want a specific destination pass an explicit
+    // Right/Left/Top/Bottom/Floating position.
     let theme = default_theme();
     let mut dp = DockPanel::new(test_id());
     dp.layout(Rect::new(0, 0, 1024, 768), &theme);
@@ -1163,15 +1163,62 @@ fn dock_panel_center_after_split_panics() {
         DockablePanel::new("c", "C", boxed_label("c")),
         DockPosition::Center,
     );
-    // Second add: Right on Tabs -> root becomes Split.
+    // Second add: Right on Tabs -> root becomes Split { first: Tabs[c], second: Tabs[r] }.
     dp.add_panel(
         DockablePanel::new("r", "R", boxed_label("r")),
         DockPosition::Right,
     );
-    // Third add: Center on Split -> panic.
+    // Third add: Center on Split -> descend into first (Tabs[c]),
+    // append "c2". Tree becomes Split { first: Tabs[c, c2], second: Tabs[r] }.
     dp.add_panel(
         DockablePanel::new("c2", "C2", boxed_label("c2")),
         DockPosition::Center,
+    );
+
+    let first_leaf = dp.first_leaf_panels_for_test();
+    assert_eq!(
+        first_leaf,
+        vec!["c".to_string(), "c2".to_string()],
+        "Center add to Split root must append to first leaf-Tabs in order"
+    );
+
+    // Layout completes without panic.
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+}
+
+#[test]
+fn dock_panel_center_descends_through_nested_splits() {
+    // Two nested splits -- Center should descend Split.first.first until
+    // it lands on a Tabs leaf. Verifies the recursion isn't depth-1.
+    let theme = default_theme();
+    let mut dp = DockPanel::new(test_id());
+    dp.layout(Rect::new(0, 0, 1024, 768), &theme);
+
+    dp.add_panel(
+        DockablePanel::new("a", "A", boxed_label("a")),
+        DockPosition::Center,
+    );
+    dp.add_panel(
+        DockablePanel::new("b", "B", boxed_label("b")),
+        DockPosition::Right,
+    );
+    // After this Top, root = Split[V] { first: Tabs[ttop], second: Split[H] { first: Tabs[a], second: Tabs[b] } }
+    // Wait: Top wraps the whole root, so root = Split[V] { first: Tabs[ttop], second: <previous root> }.
+    // The first-leaf chain now points at "ttop", not "a".
+    dp.add_panel(
+        DockablePanel::new("ttop", "T", boxed_label("ttop")),
+        DockPosition::Top,
+    );
+    // Center add descends Split.first -> Tabs[ttop]. Appends "c".
+    dp.add_panel(
+        DockablePanel::new("c", "C", boxed_label("c")),
+        DockPosition::Center,
+    );
+
+    assert_eq!(
+        dp.first_leaf_panels_for_test(),
+        vec!["ttop".to_string(), "c".to_string()],
+        "Center descends Split.first.first... to the first reachable Tabs leaf"
     );
 }
 

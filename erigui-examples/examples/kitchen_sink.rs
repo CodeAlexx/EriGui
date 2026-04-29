@@ -1533,6 +1533,17 @@ fn main() -> anyhow::Result<()> {
                             physical_size.height as i32,
                         );
                         app.layout(new_size, &theme);
+                        renderer.window().request_redraw();
+                    }
+                    WindowEvent::RedrawRequested => {
+                        // Wayland delivers RedrawRequested after we call
+                        // request_redraw(); paint here. This is the canonical
+                        // spot for the GL frame, mirroring erigui-app.
+                        app.notifications.update_animations(1.0 / 60.0);
+                        app.layout(renderer.viewport_size(), &theme);
+                        renderer.begin_frame(theme.colors.background);
+                        app.draw(&mut renderer, &theme);
+                        renderer.end_frame();
                     }
                     _ => {}
                 }
@@ -1546,17 +1557,18 @@ fn main() -> anyhow::Result<()> {
                     // settle. 16ms ~= 60Hz frame budget.
                     app.notifications.update_animations(1.0 / 60.0);
                     app.layout(renderer.viewport_size(), &theme);
+                    // Without this, on Wayland the state mutation (e.g.
+                    // checkbox toggled, text typed) is not visible until
+                    // the NEXT incidental event triggers a paint.
+                    renderer.window().request_redraw();
                 }
             }
             WinitEvent::AboutToWait => {
-                // Idle redraw so tooltip timers + notification animations
-                // tick even with no input. Layout is cheap.
+                // Idle tick so tooltip timers + notification animations
+                // advance even with no input. Triggers a redraw via the
+                // RedrawRequested path so paint logic stays in one place.
                 app.notifications.update_animations(1.0 / 60.0);
-                app.layout(renderer.viewport_size(), &theme);
-
-                renderer.begin_frame(theme.colors.background);
-                app.draw(&mut renderer, &theme);
-                renderer.end_frame();
+                renderer.window().request_redraw();
             }
             _ => {}
         }

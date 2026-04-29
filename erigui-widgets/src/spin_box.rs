@@ -428,6 +428,31 @@ impl Widget for SpinBox {
 
             Event::KeyPress(key_event) => {
                 if self.is_editing {
+                    // Convert Key::Num0..Num9 to the corresponding char.
+                    // Some platforms (notably some Wayland configs) deliver
+                    // KeyboardInput without populating event.text, so the
+                    // translator falls through to KeyPress instead of
+                    // emitting TextInput. Without this branch the user sees
+                    // a caret but typing digits does nothing — kitchen_sink
+                    // bug reported 2026-04-28.
+                    let digit_ch: Option<char> = match key_event.key {
+                        Key::Num0 => Some('0'),
+                        Key::Num1 => Some('1'),
+                        Key::Num2 => Some('2'),
+                        Key::Num3 => Some('3'),
+                        Key::Num4 => Some('4'),
+                        Key::Num5 => Some('5'),
+                        Key::Num6 => Some('6'),
+                        Key::Num7 => Some('7'),
+                        Key::Num8 => Some('8'),
+                        Key::Num9 => Some('9'),
+                        _ => None,
+                    };
+                    if let Some(ch) = digit_ch {
+                        self.text_value.push(ch);
+                        return EventResult::Consumed;
+                    }
+
                     match key_event.key {
                         // Legacy headless path; production uses TextInput above.
                         Key::Character(ch) => {

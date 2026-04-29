@@ -1865,6 +1865,64 @@ fn text_input_text_input_event_inserts_exactly_one_char() {
 }
 
 #[test]
+fn spin_box_click_then_type_replaces_value() {
+    // User-reported in kitchen_sink: clicking the SpinBox value enters
+    // edit mode (caret visible) but typing digits doesn't update the
+    // value. This test exercises the full click-then-type-then-Enter
+    // flow at the widget level.
+    let theme = default_theme();
+    let mut sb = SpinBox::new(test_id(), 0.0, 1000.0, 42.0);
+    sb.layout(Rect::new(0, 0, 148, 34), &theme);
+
+    sb.handle_event(&left_press_event(Point::new(40, 17)), &theme);
+    assert!(sb.is_focused(), "click must enter edit mode");
+
+    // The user expects to be able to clear the buffer and type a new
+    // value. There's no shortcut for "select all" in SpinBox, so they
+    // backspace-clear, then type. Mimic that.
+    use erigui_core::{Key, KeyPressEvent};
+    for _ in 0..4 {
+        // "42" is at most a couple of digits but be generous.
+        sb.handle_event(
+            &Event::KeyPress(KeyPressEvent {
+                key: Key::Backspace,
+                modifiers: Modifiers::empty(),
+                repeat: false,
+            }),
+            &theme,
+        );
+    }
+
+    // Type "55" via the canonical TextInput path the translator emits
+    // for printable keystrokes.
+    let res5 = sb.handle_event(
+        &Event::TextInput(TextInputEvent {
+            text: "5".to_string(),
+        }),
+        &theme,
+    );
+    assert_eq!(res5, EventResult::Consumed, "digit must be consumed");
+    let _ = sb.handle_event(
+        &Event::TextInput(TextInputEvent {
+            text: "5".to_string(),
+        }),
+        &theme,
+    );
+
+    // Press Enter to commit.
+    sb.handle_event(
+        &Event::KeyPress(KeyPressEvent {
+            key: Key::Enter,
+            modifiers: Modifiers::empty(),
+            repeat: false,
+        }),
+        &theme,
+    );
+    assert!(!sb.is_focused(), "Enter must commit and exit edit mode");
+    assert_eq!(sb.value(), 55.0, "typed value must replace the original");
+}
+
+#[test]
 fn spin_box_click_on_value_area_enters_edit_mode() {
     // Regression: clicking the "42" value area should set is_editing
     // (exposed via is_focused()). Pre-fix the click could miss because

@@ -524,13 +524,18 @@ impl Widget for TreeView {
                     let arrow_x = self.state.bounds.x() + node_depth * self.indent_width + 4;
                     let click_x = position.x;
 
-                    // Check if we have a node with children and if click is on expand button
+                    // Determine if the click should toggle expansion. The
+                    // chevron's nominal hit zone is [arrow_x, arrow_x+16],
+                    // but a single 16-pixel target is hard to land on at
+                    // HiDPI and is well-left of the row's text. To match
+                    // standard file-explorer UX (click row toggles a
+                    // folder), treat any click on a node-with-children row
+                    // as a toggle. Leaf nodes are unaffected — they simply
+                    // select. This subsumes the chevron-only path that
+                    // existing tests cover.
                     let mut clicked_expand = false;
                     if let Some(node) = self.find_node_mut(&node_id) {
-                        if !node.children.is_empty()
-                            && click_x >= arrow_x
-                            && click_x <= arrow_x + 16
-                        {
+                        if !node.children.is_empty() && click_x >= arrow_x {
                             clicked_expand = true;
                         }
                     }

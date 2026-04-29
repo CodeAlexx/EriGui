@@ -213,12 +213,12 @@ impl App {
                 // First pass: measure fixed items (including menu bar).
                 // A nested Container with a recorded layout is treated as
                 // flex (it expands).
+                let menu_bar_height = theme.typography.font_size_base + 12;
                 for &child_id in children {
                     if self.widget_manager.get(child_id).is_some() {
                         // Check if it's a menu bar
                         if self.widget_manager.get_typed::<MenuBar>(child_id).is_some() {
-                            let menu_height = 25; // Fixed height for menu bar
-                            fixed_height += menu_height;
+                            fixed_height += menu_bar_height;
                         } else if self.widget_manager.get_typed::<Container>(child_id).is_some() {
                             if let Some(child_layout) = self.layouts.get(&child_id) {
                                 if child_layout.mode != LayoutMode::None {
@@ -247,7 +247,7 @@ impl App {
                     // Determine height before getting mutable reference
                     let is_menu_bar = self.widget_manager.get_typed::<MenuBar>(child_id).is_some();
                     let height = if is_menu_bar {
-                        25 // Fixed height for menu bar
+                        menu_bar_height
                     } else if flex_items.contains(&child_id) {
                         flex_height
                     } else {
@@ -294,6 +294,28 @@ impl App {
 
             for &child_id in widget.children() {
                 self.draw_widget(child_id, renderer);
+            }
+        }
+    }
+
+    /// Walk the tree and call `draw_dropdown_only` on every MenuBar so
+    /// open dropdowns paint on top of the rest of the UI.
+    fn draw_dropdowns(&self, renderer: &mut Renderer, theme: &Theme) {
+        self.draw_dropdowns_walk(self.root_container, renderer, theme);
+    }
+
+    fn draw_dropdowns_walk(
+        &self,
+        widget_id: WidgetId,
+        renderer: &mut Renderer,
+        theme: &Theme,
+    ) {
+        if let Some(widget) = self.widget_manager.get(widget_id) {
+            for &child_id in widget.children() {
+                self.draw_dropdowns_walk(child_id, renderer, theme);
+            }
+            if let Some(menu_bar) = self.widget_manager.get_typed::<MenuBar>(widget_id) {
+                menu_bar.draw_dropdown_only(renderer, theme);
             }
         }
     }
@@ -369,8 +391,16 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Event::AboutToWait => {
-                renderer.begin_frame(Color::rgb(30, 30, 30));
+                // Background must come from the same theme the labels
+                // use, otherwise dark text lands on dark fill (invisible).
+                let theme = Theme::light();
+                renderer.begin_frame(theme.colors.background);
                 app.draw_widget(app.root_container, &mut renderer);
+                // Second pass: dropdowns must paint on top of everything
+                // else (z-order). MenuBar::draw only paints the strip;
+                // the host calls draw_dropdown_only after the rest of
+                // the tree.
+                app.draw_dropdowns(&mut renderer, &theme);
                 renderer.end_frame();
             }
             _ => {}

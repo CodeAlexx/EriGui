@@ -239,8 +239,17 @@ impl Widget for TabControl {
         Size::new(400, 300)
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Derive tab strip metrics from the theme so HiDPI / Theme::with_scale
+        // reach TabControl. The constructor's defaults (30 / 80 / 200) were
+        // unscaled raw pixels — at scale 2x the strip overflowed the canvas
+        // and tab labels overlapped each other.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(8);
+        self.tab_height = font + pad * 2;
+        self.min_tab_width = font * 6;
+        self.max_tab_width = font * 14;
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {

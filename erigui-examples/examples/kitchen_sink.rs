@@ -42,6 +42,45 @@ fn set_status(msg: &StatusMsg, text: impl Into<String>) {
     *msg.borrow_mut() = text.into();
 }
 
+// ---------- shared layout metrics derived from the theme ----------
+//
+// The theme is already scaled by ui_scale at App start (Theme::with_scale,
+// wave-1 a07a8f9). All sizes here scale with it; on a 4K display at scale
+// 2x the rows roughly double, on a 1080p at 1x they're roughly the
+// pre-fix hardcoded 32px. Avoid raw px constants in tab layouts.
+struct LayoutMetrics {
+    pad: i32,
+    row_h: i32,
+    row_gap: i32,
+    btn_w: i32,
+    btn_gap: i32,
+    cb_w: i32,
+    label_h: i32,
+}
+
+/// Minimum content body height (so the demo doesn't collapse when the
+/// window is smaller than reasonable). Theme-scaled.
+fn m_min_body(theme: &Theme) -> i32 {
+    theme.typography.font_size_base * 12
+}
+
+fn metrics(theme: &Theme) -> LayoutMetrics {
+    let font = theme.typography.font_size_base.max(12);
+    let pad = theme.spacing.padding.left.max(8);
+    LayoutMetrics {
+        pad,
+        // glyph + chrome: enough vertical room for the font + button border/padding.
+        row_h: font + pad * 2 + 4,
+        row_gap: theme.spacing.gap_medium.max(8),
+        // ~10 chars wide — covers labels like "Open Dialog", "Toast Info", etc.
+        btn_w: font * 10,
+        btn_gap: theme.spacing.gap_medium.max(8),
+        // ~16 chars wide — covers checkbox labels like "Enable feature A".
+        cb_w: font * 16,
+        label_h: font + 6,
+    }
+}
+
 // ---------- tab 1: Basic Inputs (wave-2 TooltipState retrofit) ----------
 //
 // Verify: hover button/checkbox/slider/spinbox/combobox/text_input ~500ms ->
@@ -139,60 +178,57 @@ impl BasicInputsTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let row_h = 32;
-        let row_gap = 12;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
+        let x0 = area.x() + m.pad;
 
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + row_gap;
+        self.label_section.layout(
+            Rect::new(x0, y, area.width() - m.pad * 2, lbl_size.height.max(m.label_h)),
+            theme,
+        );
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
 
         // Row 1: three buttons across
-        let btn_w = 110;
-        let btn_gap = 12;
-        self.btn_ok
-            .layout(Rect::new(area.x() + pad, y, btn_w, row_h), theme);
+        self.btn_ok.layout(Rect::new(x0, y, m.btn_w, m.row_h), theme);
         self.btn_disabled.layout(
-            Rect::new(area.x() + pad + btn_w + btn_gap, y, btn_w, row_h),
+            Rect::new(x0 + m.btn_w + m.btn_gap, y, m.btn_w, m.row_h),
             theme,
         );
         self.btn_warn.layout(
-            Rect::new(area.x() + pad + (btn_w + btn_gap) * 2, y, btn_w, row_h),
+            Rect::new(x0 + (m.btn_w + m.btn_gap) * 2, y, m.btn_w, m.row_h),
             theme,
         );
-        y += row_h + row_gap;
+        y += m.row_h + m.row_gap;
 
-        // Row 2: two checkboxes
-        self.cb_a
-            .layout(Rect::new(area.x() + pad, y, 220, row_h), theme);
+        // Row 2: two checkboxes — separated enough that long labels don't overlap
+        self.cb_a.layout(Rect::new(x0, y, m.cb_w, m.row_h), theme);
         self.cb_b.layout(
-            Rect::new(area.x() + pad + 240, y, 220, row_h),
+            Rect::new(x0 + m.cb_w + m.btn_gap, y, m.cb_w, m.row_h),
             theme,
         );
-        y += row_h + row_gap;
+        y += m.row_h + m.row_gap;
 
-        // Row 3: slider
+        // Row 3: slider — wider than buttons for visible drag range
         self.slider
-            .layout(Rect::new(area.x() + pad, y, 320, row_h), theme);
-        y += row_h + row_gap;
+            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         // Row 4: spinbox
         self.spin
-            .layout(Rect::new(area.x() + pad, y, 160, row_h), theme);
-        y += row_h + row_gap;
+            .layout(Rect::new(x0, y, m.btn_w + m.btn_gap, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         // Row 5: combobox
         self.combo
-            .layout(Rect::new(area.x() + pad, y, 200, row_h), theme);
-        y += row_h + row_gap;
+            .layout(Rect::new(x0, y, m.btn_w * 2, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         // Row 6: text input
         self.text_input
-            .layout(Rect::new(area.x() + pad, y, 320, row_h), theme);
+            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -399,39 +435,41 @@ impl SelectionTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + 12;
+        self.label_section.layout(
+            Rect::new(area.x() + m.pad, y, area.width() - m.pad * 2, lbl_size.height.max(m.label_h)),
+            theme,
+        );
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
 
         // Three columns: list (left), radios (middle), tree (right).
-        let col_w = (area.width() - pad * 4) / 3;
-        let col1_x = area.x() + pad;
-        let col2_x = col1_x + col_w + pad;
-        let col3_x = col2_x + col_w + pad;
-        let col_h = area.bottom() - y - pad;
+        let col_w = (area.width() - m.pad * 4) / 3;
+        let col1_x = area.x() + m.pad;
+        let col2_x = col1_x + col_w + m.pad;
+        let col3_x = col2_x + col_w + m.pad;
+        let col_h = area.bottom() - y - m.pad;
 
         // List column
         let list_lbl_h = self
             .label_list
             .measure(&LayoutConstraints::default(), theme)
-            .height;
-        self.label_list
-            .layout(Rect::new(col1_x, y, col_w, list_lbl_h), theme);
-        self.list
-            .layout(Rect::new(col1_x, y + list_lbl_h + 4, col_w, col_h - list_lbl_h - 4), theme);
+            .height
+            .max(m.label_h);
+        self.label_list.layout(Rect::new(col1_x, y, col_w, list_lbl_h), theme);
+        self.list.layout(
+            Rect::new(col1_x, y + list_lbl_h + m.row_gap / 2, col_w, col_h - list_lbl_h - m.row_gap / 2),
+            theme,
+        );
 
         // Radio column
-        self.label_radio
-            .layout(Rect::new(col2_x, y, col_w, list_lbl_h), theme);
-        let radio_y = y + list_lbl_h + 4;
-        let radio_h = 28;
-        self.radio_a
-            .layout(Rect::new(col2_x, radio_y, col_w, radio_h), theme);
+        self.label_radio.layout(Rect::new(col2_x, y, col_w, list_lbl_h), theme);
+        let radio_y = y + list_lbl_h + m.row_gap / 2;
+        let radio_h = m.row_h;
+        self.radio_a.layout(Rect::new(col2_x, radio_y, col_w, radio_h), theme);
         self.radio_b
             .layout(Rect::new(col2_x, radio_y + radio_h, col_w, radio_h), theme);
         self.radio_c
@@ -440,10 +478,11 @@ impl SelectionTab {
             .layout(Rect::new(col2_x, radio_y + radio_h * 3, col_w, radio_h), theme);
 
         // Tree column
-        self.label_tree
-            .layout(Rect::new(col3_x, y, col_w, list_lbl_h), theme);
-        self.tree
-            .layout(Rect::new(col3_x, y + list_lbl_h + 4, col_w, col_h - list_lbl_h - 4), theme);
+        self.label_tree.layout(Rect::new(col3_x, y, col_w, list_lbl_h), theme);
+        self.tree.layout(
+            Rect::new(col3_x, y + list_lbl_h + m.row_gap / 2, col_w, col_h - list_lbl_h - m.row_gap / 2),
+            theme,
+        );
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -566,47 +605,46 @@ impl ModalsTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
+        let x0 = area.x() + m.pad;
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + 12;
-
-        let row_h = 36;
-        let btn_w = 160;
-        let gap = 12;
-        // Row 1: Dialog + FilePicker
-        self.btn_open_dialog
-            .layout(Rect::new(area.x() + pad, y, btn_w, row_h), theme);
-        self.btn_open_file.layout(
-            Rect::new(area.x() + pad + btn_w + gap, y, btn_w, row_h),
+        self.label_section.layout(
+            Rect::new(x0, y, area.width() - m.pad * 2, lbl_size.height.max(m.label_h)),
             theme,
         );
-        y += row_h + gap;
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
+
+        let btn_w = m.btn_w + m.btn_gap; // ~12 chars to fit "Open File Picker"
+        // Row 1: Dialog + FilePicker
+        self.btn_open_dialog.layout(Rect::new(x0, y, btn_w, m.row_h), theme);
+        self.btn_open_file.layout(
+            Rect::new(x0 + btn_w + m.btn_gap, y, btn_w, m.row_h),
+            theme,
+        );
+        y += m.row_h + m.row_gap;
 
         // Row 2: Toasts
-        self.btn_toast_info
-            .layout(Rect::new(area.x() + pad, y, btn_w, row_h), theme);
+        self.btn_toast_info.layout(Rect::new(x0, y, btn_w, m.row_h), theme);
         self.btn_toast_warn.layout(
-            Rect::new(area.x() + pad + btn_w + gap, y, btn_w, row_h),
+            Rect::new(x0 + btn_w + m.btn_gap, y, btn_w, m.row_h),
             theme,
         );
         self.btn_toast_err.layout(
-            Rect::new(area.x() + pad + (btn_w + gap) * 2, y, btn_w, row_h),
+            Rect::new(x0 + (btn_w + m.btn_gap) * 2, y, btn_w, m.row_h),
             theme,
         );
         self.btn_clear_toasts.layout(
-            Rect::new(area.x() + pad + (btn_w + gap) * 3, y, btn_w, row_h),
+            Rect::new(x0 + (btn_w + m.btn_gap) * 3, y, btn_w, m.row_h),
             theme,
         );
 
-        // Center the dialog (when shown)
+        // Center the dialog (when shown). Theme-scaled minimums.
         if self.show_dialog {
-            let dlg_w = 460;
-            let dlg_h = 200;
+            let dlg_w = (m.btn_w * 5).min(area.width() - m.pad * 2);
+            let dlg_h = m.row_h * 6;
             self.dialog.layout(
                 Rect::new(
                     area.x() + (area.width() - dlg_w) / 2,
@@ -620,8 +658,8 @@ impl ModalsTab {
 
         // FileDialog: large, centered.
         if self.show_file_dialog {
-            let fd_w = (area.width() - pad * 2).min(720);
-            let fd_h = (area.height() - pad * 2).min(520);
+            let fd_w = (area.width() - m.pad * 2).min(m.btn_w * 8);
+            let fd_h = (area.height() - m.pad * 2).min(m.row_h * 16);
             self.file_dialog.layout(
                 Rect::new(
                     area.x() + (area.width() - fd_w) / 2,
@@ -851,49 +889,40 @@ impl PickersTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
+        let x0 = area.x() + m.pad;
+        let full_w = area.width() - m.pad * 2;
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + 16;
-
-        let row_h = 32;
-        let row_lbl_h = 20;
+        self.label_section.layout(
+            Rect::new(x0, y, full_w, lbl_size.height.max(m.label_h)),
+            theme,
+        );
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
 
         // ColorPicker row
-        self.label_color.layout(
-            Rect::new(area.x() + pad, y, area.width() - pad * 2, row_lbl_h),
-            theme,
-        );
-        y += row_lbl_h + 4;
-        // Compact picker is small; give it a 60x32 click area.
+        self.label_color.layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        // Compact picker — preview swatch + dropdown arrow. Square-ish.
         self.color_picker
-            .layout(Rect::new(area.x() + pad, y, 80, row_h), theme);
-        y += row_h + 24;
+            .layout(Rect::new(x0, y, m.row_h * 3, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         // DateTimePicker row
-        self.label_dtp.layout(
-            Rect::new(area.x() + pad, y, area.width() - pad * 2, row_lbl_h),
-            theme,
-        );
-        y += row_lbl_h + 4;
+        self.label_dtp.layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
         self.dtp
-            .layout(Rect::new(area.x() + pad, y, 280, row_h), theme);
-        y += row_h + 24;
+            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         // Breadcrumb row
-        self.label_breadcrumb.layout(
-            Rect::new(area.x() + pad, y, area.width() - pad * 2, row_lbl_h),
-            theme,
-        );
-        y += row_lbl_h + 4;
-        self.breadcrumb.layout(
-            Rect::new(area.x() + pad, y, area.width() - pad * 2, row_h),
-            theme,
-        );
+        self.label_breadcrumb
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        self.breadcrumb
+            .layout(Rect::new(x0, y, full_w, m.row_h), theme);
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -1060,31 +1089,30 @@ impl ContainersTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + 12;
+        self.label_section.layout(
+            Rect::new(area.x() + m.pad, y, area.width() - m.pad * 2, lbl_size.height.max(m.label_h)),
+            theme,
+        );
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
 
-        let lbl_h = 20;
         // Two columns: dock (left, 60%), accordion (right, 40%)
-        let col1_w = (area.width() - pad * 3) * 6 / 10;
-        let col2_w = area.width() - pad * 3 - col1_w;
-        let col1_x = area.x() + pad;
-        let col2_x = col1_x + col1_w + pad;
+        let col1_w = (area.width() - m.pad * 3) * 6 / 10;
+        let col2_w = area.width() - m.pad * 3 - col1_w;
+        let col1_x = area.x() + m.pad;
+        let col2_x = col1_x + col1_w + m.pad;
 
-        self.label_dock
-            .layout(Rect::new(col1_x, y, col1_w, lbl_h), theme);
+        self.label_dock.layout(Rect::new(col1_x, y, col1_w, m.label_h), theme);
         self.label_accordion
-            .layout(Rect::new(col2_x, y, col2_w, lbl_h), theme);
-        y += lbl_h + 4;
-        let col_h = area.bottom() - y - pad;
+            .layout(Rect::new(col2_x, y, col2_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        let col_h = area.bottom() - y - m.pad;
 
-        self.dock
-            .layout(Rect::new(col1_x, y, col1_w, col_h), theme);
+        self.dock.layout(Rect::new(col1_x, y, col1_w, col_h), theme);
         self.accordion
             .layout(Rect::new(col2_x, y, col2_w, col_h), theme);
     }
@@ -1169,36 +1197,38 @@ impl MiscTab {
     }
 
     fn layout(&mut self, area: Rect, theme: &Theme) {
-        let pad = 16;
-        let mut y = area.y() + pad;
+        let m = metrics(theme);
+        let mut y = area.y() + m.pad;
+        let x0 = area.x() + m.pad;
+        let full_w = area.width() - m.pad * 2;
         let lbl_size = self
             .label_section
             .measure(&LayoutConstraints::default(), theme);
-        self.label_section
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_size.height), theme);
-        y += lbl_size.height + 12;
+        self.label_section.layout(
+            Rect::new(x0, y, full_w, lbl_size.height.max(m.label_h)),
+            theme,
+        );
+        y += lbl_size.height.max(m.label_h) + m.row_gap;
 
-        let lbl_h = 20;
-        // Icons row: reserve a 64-tall band (icons_rect drawn manually)
-        self.label_icons
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_h), theme);
-        y += lbl_h + 4;
-        self.icons_rect = Rect::new(area.x() + pad, y, area.width() - pad * 2, 64);
-        y += 64 + 12;
+        // Icons row: reserve a band tall enough for theme-scaled icons
+        let icon_band_h = m.row_h * 2;
+        self.label_icons.layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        self.icons_rect = Rect::new(x0, y, full_w, icon_band_h);
+        y += icon_band_h + m.row_gap;
 
         self.label_progress
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_h), theme);
-        y += lbl_h + 4;
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
         self.progress
-            .layout(Rect::new(area.x() + pad, y, 320, 24), theme);
-        y += 24 + 12;
+            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
+        y += m.row_h + m.row_gap;
 
         self.label_textarea
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, lbl_h), theme);
-        y += lbl_h + 4;
-        let ta_h = area.bottom() - y - pad;
-        self.text_area
-            .layout(Rect::new(area.x() + pad, y, area.width() - pad * 2, ta_h), theme);
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        let ta_h = (area.bottom() - y - m.pad).max(m.row_h * 4);
+        self.text_area.layout(Rect::new(x0, y, full_w, ta_h), theme);
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -1365,15 +1395,17 @@ impl App {
 
     fn layout(&mut self, viewport: Size, theme: &Theme) {
         self.viewport = viewport;
-        let tab_h = 36;
-        let status_h = 28;
+        // TabControl auto-scales its tab strip in layout(theme); mirror the
+        // formula here so we can compute the content area's y-offset
+        // before the tabs widget exposes its own value publicly.
+        let tab_h = theme.typography.font_size_base + theme.spacing.padding.top.max(8) * 2;
+        let status_h = (theme.typography.font_size_base + theme.spacing.padding.top.max(8)).max(24);
         let full = Rect::new(0, 0, viewport.width, viewport.height);
 
-        self.tabs
-            .layout(Rect::new(0, 0, full.width(), tab_h + 240 /* tab body min */), theme);
-        // Re-layout: TabControl reserves tab_h at top and the rest is
-        // content. We want content to fill most of the window (minus status).
-        let real_tabs_h = viewport.height - status_h;
+        // Single layout pass — TabControl owns its full vertical extent
+        // (tab strip + body), then the host paints content directly into
+        // the body region.
+        let real_tabs_h = (viewport.height - status_h).max(tab_h + m_min_body(theme));
         self.tabs
             .layout(Rect::new(0, 0, full.width(), real_tabs_h), theme);
 
@@ -1382,7 +1414,7 @@ impl App {
             0,
             tab_h,
             viewport.width,
-            viewport.height - tab_h - status_h,
+            (viewport.height - tab_h - status_h).max(m_min_body(theme)),
         );
 
         match self.active() {

@@ -46,3 +46,41 @@ path = "examples/advanced_rendering.rs"
 [[example]]
 name = "memory_check"
 path = "examples/memory_check.rs"
+
+# kitchen_sink: comprehensive widget showcase exercising every wave-2 and
+# wave-3 fix in one launchable binary. Test plan, per tab:
+#
+#   Tab 1 (Basic Inputs)  - Wave-2 TooltipState retrofit on Button,
+#                           Checkbox, Slider, SpinBox, ComboBox, TextInput.
+#                           Hover ~500ms for tooltip; click dismisses.
+#                           "Disabled" button: tooltip never shows.
+#   Tab 2 (Selection)     - Wave-1 ListView scrollbar drag (50 items),
+#                           Wave-2 host-owned RadioGroup (Rc<RefCell>),
+#                           Wave-3 TreeView keyboard nav (5370607).
+#                           Click tree to focus, then arrow keys / Enter.
+#   Tab 3 (Modals)        - Dialog open + button callbacks, in-app
+#                           FileDialog (wave-3 double-click navigates),
+#                           Wave-3 Notification close-on-press (5d88d3c)
+#                           and Wave-3 NotificationManager.clear() fires
+#                           on_notification_closed (4e745a0). Status
+#                           bar shows callback count delta on Clear All.
+#   Tab 4 (Pickers)       - Wave-3 ColorPicker hex flicker fix (color
+#                           stays unchanged until 6 hex chars typed),
+#                           Wave-2 DateTimePicker focus propagation +
+#                           Tab gating, Wave-1 Breadcrumb kbd nav.
+#   Tab 5 (Containers)    - Wave-3 DockPanel auto-descent (165feef):
+#                           4th add (Center after Split-root) appears
+#                           as a tab in the main panel rather than
+#                           silently no-opping. Wave-1 Accordion gated
+#                           kbd nav: arrows only cycle when focused.
+#   Tab 6 (Misc)          - Wave-3 Icon hole-fix (gear/palette pass
+#                           bg_color, hole now visible). ProgressBar.
+#                           Wave-2 TextArea UTF-8 get_selected_text:
+#                           select multi-script line + Ctrl+C; status
+#                           bar shows actual visible chars.
+#
+# TabControl itself exercises Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1..9
+# kbd nav added in wave-2.
+[[example]]
+name = "kitchen_sink"
+path = "examples/kitchen_sink.rs"

@@ -1,5 +1,5 @@
 use erigui_core::*;
-use erigui_rendering::Renderer;
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::*;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
@@ -96,6 +96,7 @@ fn main() {
     let theme = Theme::dark();
 
     let mut demo = AccordionDemo::new();
+    let mut translator = EventTranslator::new(renderer.viewport_size());
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
@@ -108,14 +109,13 @@ fn main() {
                     }
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
+                        translator.set_window_size(renderer.viewport_size());
                     }
                     _ => {}
                 }
 
                 // Convert window event to EriGui event
-                if let Some(gui_event) =
-                    erigui_rendering::window::convert_window_event(event, renderer.viewport_size())
-                {
+                if let Some(gui_event) = translator.translate(&event) {
                     let basic_result = demo.basic_accordion.handle_event(&gui_event, &theme);
                     let single_result = demo.single_accordion.handle_event(&gui_event, &theme);
 

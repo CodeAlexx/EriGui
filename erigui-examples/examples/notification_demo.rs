@@ -1,5 +1,5 @@
 use erigui_core::*;
-use erigui_rendering::Renderer;
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::*;
 use std::time::Duration;
 use winit::{
@@ -145,6 +145,7 @@ fn main() {
 
     let mut demo = NotificationDemo::new();
     let mut last_frame_time = std::time::Instant::now();
+    let mut translator = EventTranslator::new(renderer.viewport_size());
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
@@ -157,14 +158,13 @@ fn main() {
                     }
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
+                        translator.set_window_size(renderer.viewport_size());
                     }
                     _ => {}
                 }
 
                 // Convert window event to EriGui event
-                if let Some(gui_event) =
-                    erigui_rendering::window::convert_window_event(event, renderer.viewport_size())
-                {
+                if let Some(gui_event) = translator.translate(&event) {
                     // Handle button events
                     if demo.info_button.handle_event(&gui_event, &theme) == EventResult::Consumed {
                         if let Event::MouseButton(e) = &gui_event {

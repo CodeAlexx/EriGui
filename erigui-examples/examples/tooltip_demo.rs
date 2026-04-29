@@ -1,5 +1,5 @@
 use erigui_core::*;
-use erigui_rendering::Renderer;
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::*;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
@@ -115,6 +115,7 @@ fn main() {
     let theme = Theme::dark();
 
     let mut demo = TooltipDemo::new();
+    let mut translator = EventTranslator::new(renderer.viewport_size());
 
     event_loop
         .run(move |event, elwt| {
@@ -135,6 +136,7 @@ fn main() {
                     ..
                 } => {
                     renderer.resize(physical_size.width, physical_size.height);
+                    translator.set_window_size(renderer.viewport_size());
                 }
                 WinitEvent::WindowEvent {
                     event: WindowEvent::RedrawRequested,
@@ -276,10 +278,7 @@ fn main() {
                     // All other window events: convert to GUI event and
                     // dispatch. Each button drives its own tooltip from
                     // handle_event.
-                    if let Some(gui_event) = erigui_rendering::window::convert_window_event(
-                        event,
-                        renderer.viewport_size(),
-                    ) {
+                    if let Some(gui_event) = translator.translate(&event) {
                         if let Event::MouseMove(move_event) = &gui_event {
                             demo.check_hover_label(move_event.position);
                         }

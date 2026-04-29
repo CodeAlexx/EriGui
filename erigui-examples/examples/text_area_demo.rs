@@ -1,5 +1,5 @@
 use erigui_core::*;
-use erigui_rendering::Renderer;
+use erigui_rendering::{EventTranslator, Renderer};
 use erigui_widgets::*;
 use winit::{
     event::{Event as WinitEvent, WindowEvent},
@@ -102,6 +102,7 @@ fn main() {
     let theme = Theme::dark();
 
     let mut demo = TextAreaDemo::new();
+    let mut translator = EventTranslator::new(renderer.viewport_size());
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Wait);
@@ -116,6 +117,7 @@ fn main() {
                     }
                     WindowEvent::Resized(physical_size) => {
                         renderer.resize(physical_size.width, physical_size.height);
+                        translator.set_window_size(renderer.viewport_size());
                         handled = true;
                     }
                     // (winit 0.29) WindowEvent::ReceivedCharacter arm removed; EventTranslator now derives TextInput from KeyEvent.text
@@ -125,9 +127,7 @@ fn main() {
                 // Convert window event to EriGui event
                 if handled {
                     renderer.window().request_redraw();
-                } else if let Some(gui_event) =
-                    erigui_rendering::window::convert_window_event(event, renderer.viewport_size())
-                {
+                } else if let Some(gui_event) = translator.translate(&event) {
                     let _ = demo.text_area.handle_event(&gui_event, &theme);
                     let _ = demo.line_numbers_checkbox.handle_event(&gui_event, &theme);
                     let _ = demo.word_wrap_checkbox.handle_event(&gui_event, &theme);

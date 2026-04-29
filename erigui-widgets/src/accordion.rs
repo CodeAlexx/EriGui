@@ -378,6 +378,13 @@ impl Widget for Accordion {
 
     fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-driven header height so HiDPI / Theme::with_scale reaches
+        // the accordion. The constructor's default 40 was unscaled — at
+        // scale 2x, headers stayed 40px while text wanted ~60px and the
+        // header/body labels overlapped each other.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(8);
+        self.header_height = font + pad * 2;
 
         let mut y = rect.y();
         let panels_count = self.panels.len();

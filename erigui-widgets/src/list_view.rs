@@ -268,9 +268,12 @@ impl Widget for ListView {
 
         // Vertical scrollbar — only drawn when content exceeds viewport.
         if let Some(g) = self.scrollbar_geometry() {
+            // Track in the muted surface variant; thumb in text_secondary
+            // for clear contrast (theme.colors.border was too close to the
+            // track color on the dark theme).
             context.set_color(theme.colors.surface_variant);
             context.fill_rect(g.track);
-            context.set_color(theme.colors.border);
+            context.set_color(theme.colors.text_secondary);
             context.fill_rect(g.thumb);
         }
 

@@ -639,6 +639,14 @@ impl Widget for DockPanel {
     fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
         self.splitter_rects.clear();
+        // Theme-driven tab/title heights so HiDPI / Theme::with_scale
+        // reaches DockPanel. Constructor defaults of 30 / 25 were
+        // unscaled raw px — at scale 2x, tab strip stayed 30 while text
+        // wanted ~60 and tab labels overlapped panel content.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(8);
+        self.tab_height = font + pad * 2;
+        self.title_height = font + pad;
 
         // Layout dock tree - swap out root to avoid borrow issues
         let mut root = DockNode::Empty;

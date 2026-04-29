@@ -89,6 +89,24 @@ impl EventTranslator {
                 };
                 match event.state {
                     ElementState::Pressed => {
+                        // OS-level autorepeat (Wayland especially) fires
+                        // KeyboardInput dozens of times for a held key. The
+                        // user-visible symptom in kitchen_sink was a brief
+                        // 'h' tap producing ~35 h's in the TextInput. Most
+                        // native GUI toolkits do not insert text on
+                        // autorepeat — only on the initial press. Suppress
+                        // repeat events that would produce text. Navigation
+                        // keys (Backspace, arrows) still autorepeat via
+                        // their KeyPress path so "hold backspace to delete
+                        // fast" continues to work.
+                        if event.repeat {
+                            if let Some(text) = event.text.as_ref() {
+                                let printable = text.chars().any(|c| !c.is_control());
+                                if printable {
+                                    return None;
+                                }
+                            }
+                        }
                         // Space is an activation key for buttons, checkboxes,
                         // accordions, dialog buttons, etc. — they need it as
                         // KeyPress(Key::Space). Pre-fix the translator

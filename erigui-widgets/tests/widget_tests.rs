@@ -1827,6 +1827,44 @@ fn combo_box_tooltip_hides_on_mouse_press() {
 }
 
 #[test]
+fn text_input_text_input_event_inserts_exactly_one_char() {
+    // HANDOFF_2026-04-28 #3 hypothesizes a "dual-event bug where both
+    // Event::TextInput and Event::KeyPress(Key::Char) route to
+    // insert_char". This regression nails the no-double-insert
+    // contract at the widget level: even if both events fired for the
+    // same physical press, only TextInput inserts.
+    let theme = default_theme();
+    let mut ti = TextInput::new(test_id());
+    ti.layout(Rect::new(0, 0, 200, 30), &theme);
+    ti.set_focused(true);
+
+    let res = ti.handle_event(
+        &Event::TextInput(TextInputEvent {
+            text: "a".to_string(),
+        }),
+        &theme,
+    );
+    assert_eq!(res, EventResult::Consumed, "TextInput must consume");
+    assert_eq!(ti.text(), "a", "exactly one char inserted");
+
+    // A KeyPress for a Character event without Ctrl must NOT insert
+    // (TextInput is the canonical insertion path; Character is for
+    // Ctrl+letter shortcuts only). Reach through with the same letter
+    // and assert text is unchanged.
+    let kp = Event::KeyPress(KeyPressEvent {
+        key: Key::Character('b'),
+        modifiers: Modifiers::empty(),
+        repeat: false,
+    });
+    let _ = ti.handle_event(&kp, &theme);
+    assert_eq!(
+        ti.text(),
+        "a",
+        "non-Ctrl Key::Character must not insert (only Event::TextInput does)"
+    );
+}
+
+#[test]
 fn spin_box_click_on_value_area_enters_edit_mode() {
     // Regression: clicking the "42" value area should set is_editing
     // (exposed via is_focused()). Pre-fix the click could miss because

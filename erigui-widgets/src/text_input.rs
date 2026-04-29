@@ -497,8 +497,12 @@ impl Widget for TextInput {
             let cursor_x = inner.x() + self.cursor_pixel(theme) - self.scroll_offset;
             let top = inner.y() + 2;
             let bottom = inner.bottom() - 2;
-            context.set_color(theme.colors.text);
-            context.draw_line(Point::new(cursor_x, top), Point::new(cursor_x, bottom), 1);
+            context.set_color(theme.colors.primary);
+            // 2-pixel wide line in the primary color so the caret is
+            // visible at HiDPI without being lost in the text glyphs.
+            // Pre-fix it was a 1-pixel line in colors.text — easy to miss
+            // (kitchen_sink: "no cursor or caret").
+            context.draw_line(Point::new(cursor_x, top), Point::new(cursor_x, bottom), 2);
         }
 
         context.pop_clip_rect();

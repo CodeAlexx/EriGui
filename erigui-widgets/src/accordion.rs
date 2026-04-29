@@ -588,9 +588,25 @@ impl Widget for Accordion {
 
                 return EventResult::Consumed;
             }
-            Event::KeyPress(KeyPressEvent { key, modifiers, .. })
+            Event::KeyPress(KeyPressEvent { key, modifiers, repeat })
                 if self.state.focused && modifiers.is_empty() =>
             {
+                if std::env::var("ERIGUI_DEBUG_ACC").is_ok() {
+                    eprintln!(
+                        "[acc] keypress key={:?} repeat={} focused_panel={:?} state.focused=true",
+                        key, repeat, self.focused_panel
+                    );
+                }
+                // OS-level autorepeat fires the same key dozens of times
+                // for a held press. Toggle (Space/Enter) must NOT
+                // autorepeat — otherwise a single press flips the panel
+                // 0/2/4 times and the user sees "no effect / needs
+                // repeated pressing". Up/Down may autorepeat for fast
+                // navigation through long lists.
+                let toggle_via_repeat = *repeat && matches!(key, Key::Enter | Key::Space);
+                if toggle_via_repeat {
+                    return EventResult::Consumed;
+                }
                 // Only consume keyboard nav when the Accordion itself owns
                 // focus. If a child widget inside an expanded panel has
                 // focus, the Accordion is unfocused and the event falls
@@ -682,6 +698,15 @@ impl Widget for Accordion {
 
     fn set_focused(&mut self, focused: bool) {
         self.state.focused = focused;
+        // If the host gives us focus but no panel is focused yet (e.g.
+        // user clicked on the accordion area but not directly on a
+        // header), default to the first enabled panel so the very next
+        // Space / Enter / Up / Down does something. Pre-fix the user
+        // had to click ON a header before keyboard nav worked, and it
+        // looked like Space "needed repeated pressing".
+        if focused && self.focused_panel.is_none() {
+            self.focused_panel = self.first_enabled_panel();
+        }
     }
 
     fn can_focus(&self) -> bool {

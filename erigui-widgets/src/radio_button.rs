@@ -305,11 +305,11 @@ impl Widget for RadioButton {
             let (text_x, text_y) = match self.label_position {
                 LabelPosition::Left => (
                     self.state.bounds.x(),
-                    button_rect.center().y + theme.typography.font_size_base / 2 - 2,
+                    button_rect.center().y - theme.typography.font_size_base / 2,
                 ),
                 LabelPosition::Right => (
                     button_rect.right() + spacing,
-                    button_rect.center().y + theme.typography.font_size_base / 2 - 2,
+                    button_rect.center().y - theme.typography.font_size_base / 2,
                 ),
                 LabelPosition::Top => (
                     self.state.bounds.x()

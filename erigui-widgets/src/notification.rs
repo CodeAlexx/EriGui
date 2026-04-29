@@ -367,8 +367,19 @@ impl Widget for NotificationManager {
         )
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-driven sizing so HiDPI / Theme::with_scale reaches the
+        // notification toasts. Constructor defaults of width=350,
+        // height=80, margin=20, spacing=10 were unscaled raw px — at
+        // scale 2x, toast boxes were too narrow for the doubled font
+        // and messages overflowed the box on the right edge.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(8);
+        self.notification_width = font * 24;
+        self.notification_height = font * 4;
+        self.margin = pad * 2;
+        self.spacing = pad;
         self.update_layout();
     }
 

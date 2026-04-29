@@ -207,7 +207,7 @@ impl TooltipState {
             &self.text,
             Point::new(
                 tooltip_rect.x() + self.padding,
-                tooltip_rect.center().y + theme.typography.font_size_base / 2 - 2,
+                tooltip_rect.center().y - theme.typography.font_size_base / 2,
             ),
             theme.typography.font_size_base,
         );

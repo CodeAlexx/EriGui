@@ -317,7 +317,7 @@ impl TreeView {
         } else {
             arrow_x + 4
         };
-        let text_y = item_rect.center().y + theme.typography.font_size_base / 2 - 2;
+        let text_y = item_rect.center().y - theme.typography.font_size_base / 2;
         context.draw_text(
             &node.text,
             Point::new(text_x, text_y),

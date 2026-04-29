@@ -335,7 +335,7 @@ impl Accordion {
         context.set_color(text_color);
         context.draw_text(
             &panel.title,
-            Point::new(x, rect.center().y + theme.typography.font_size_base / 2 - 2),
+            Point::new(x, rect.center().y - theme.typography.font_size_base / 2),
             theme.typography.font_size_base,
         );
     }

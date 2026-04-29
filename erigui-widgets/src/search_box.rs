@@ -357,7 +357,7 @@ impl SearchBox {
                 suggestion,
                 Point::new(
                     item_rect.x() + padding,
-                    item_rect.center().y + theme.typography.font_size_base / 2 - 2,
+                    item_rect.center().y - theme.typography.font_size_base / 2,
                 ),
                 theme.typography.font_size_base,
             );

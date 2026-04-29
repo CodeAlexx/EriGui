@@ -243,7 +243,7 @@ impl Breadcrumb {
             text,
             Point::new(
                 rect.x() + self.padding,
-                rect.center().y + theme.typography.font_size_base / 2 - 2,
+                rect.center().y - theme.typography.font_size_base / 2,
             ),
             theme.typography.font_size_base,
         );

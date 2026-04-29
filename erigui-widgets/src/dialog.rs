@@ -178,8 +178,16 @@ impl Widget for Dialog {
         Size::new(min_width, 150)
     }
 
-    fn layout(&mut self, rect: Rect, _theme: &Theme) {
+    fn layout(&mut self, rect: Rect, theme: &Theme) {
         self.state.bounds = rect;
+        // Theme-driven title/button heights so HiDPI / Theme::with_scale
+        // reaches Dialog. Constructor defaults of 30 / 30 were unscaled
+        // — at scale 2x, the title bar overlapped the body content and
+        // buttons clipped at the bottom.
+        let font = theme.typography.font_size_base;
+        let pad = theme.spacing.padding.top.max(8);
+        self.title_height = font + pad * 2;
+        self.button_height = font + pad * 2;
     }
 
     fn draw(&self, context: &mut dyn DrawContext, theme: &Theme) {

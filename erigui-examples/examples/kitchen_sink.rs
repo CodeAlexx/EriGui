@@ -1320,31 +1320,11 @@ impl MiscTab {
         );
         y += lbl_size.height.max(m.label_h) + m.row_gap;
 
-        // Icons row: reserve a band tall enough for theme-scaled icons
-        let icon_band_h = m.row_h * 2;
-        self.label_icons.layout(Rect::new(x0, y, full_w, m.label_h), theme);
-        y += m.label_h + m.row_gap / 2;
-        self.icons_rect = Rect::new(x0, y, full_w, icon_band_h);
-        y += icon_band_h + m.row_gap;
-
-        self.label_progress
-            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
-        y += m.label_h + m.row_gap / 2;
-        self.progress
-            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
-        y += m.row_h + m.row_gap;
-
-        self.label_textarea
-            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
-        y += m.label_h + m.row_gap / 2;
-        // Reserve space for the theme-picker row at the bottom: section
-        // label + (label_theme | combo | label_primary | picker | reset).
-        let theme_row_h = m.row_h.max(m.label_h) + m.row_gap / 2 + m.row_h + m.row_gap;
-        let ta_h = (area.bottom() - y - m.pad - theme_row_h).max(m.row_h * 3);
-        self.text_area.layout(Rect::new(x0, y, full_w, ta_h), theme);
-        y += ta_h + m.row_gap;
-
-        // Theme & color row.
+        // Theme & color row sits HIGH UP (right after the tab title) for
+        // two reasons: (1) the user's most-used control shouldn't be at
+        // the bottom of a packed tab, and (2) the ComboBox dropdown
+        // popup opens DOWNWARD and gets clipped if the combo is too
+        // close to the tab's bottom edge.
         self.label_theme_section
             .layout(Rect::new(x0, y, full_w, m.label_h), theme);
         y += m.label_h + m.row_gap / 2;
@@ -1366,6 +1346,27 @@ impl MiscTab {
         x += pick_w + m.btn_gap;
         self.reset_btn
             .layout(Rect::new(x, y, m.btn_w, m.row_h), theme);
+        y += m.row_h + m.row_gap;
+
+        // Icons row: reserve a band tall enough for theme-scaled icons
+        let icon_band_h = m.row_h * 2;
+        self.label_icons.layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        self.icons_rect = Rect::new(x0, y, full_w, icon_band_h);
+        y += icon_band_h + m.row_gap;
+
+        self.label_progress
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        self.progress
+            .layout(Rect::new(x0, y, m.btn_w * 3, m.row_h), theme);
+        y += m.row_h + m.row_gap;
+
+        self.label_textarea
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        let ta_h = (area.bottom() - y - m.pad).max(m.row_h * 3);
+        self.text_area.layout(Rect::new(x0, y, full_w, ta_h), theme);
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -1804,9 +1805,20 @@ fn main() -> anyhow::Result<()> {
 
                     // Drain MiscTab's theme-picker requests. The combo writes
                     // a theme name; the color picker writes Some(Color); the
-                    // Reset button writes the sentinel Color::TRANSPARENT to
-                    // mean "clear the override".
-                    if let Some(req) = app.theme_request.borrow_mut().take() {
+                    // Reset button writes the sentinel Color::TRANSPARENT.
+                    //
+                    // IMPORTANT: take() into a local FIRST, then act. Calling
+                    // ComboBox::set_selected (via sync_to_theme) re-fires the
+                    // combo's on_change callback, which borrows the same
+                    // RefCell. If the borrow_mut().take() temporary is still
+                    // alive across the body, you panic with "RefCell already
+                    // borrowed".
+                    let pending_theme: Option<String> =
+                        app.theme_request.borrow_mut().take();
+                    let pending_primary: Option<Color> =
+                        app.primary_request.borrow_mut().take();
+
+                    if let Some(req) = pending_theme {
                         if let Some(idx) = theme_names
                             .iter()
                             .position(|n| n.eq_ignore_ascii_case(&req))
@@ -1822,10 +1834,14 @@ fn main() -> anyhow::Result<()> {
                                 &theme_names[theme_idx],
                                 theme.colors.primary,
                             );
+                            // sync_to_theme.set_selected echoes a fresh
+                            // request back into the channel; clear it so we
+                            // don't loop on the next frame.
+                            *app.theme_request.borrow_mut() = None;
                             eprintln!("[theme] {}", theme_names[theme_idx]);
                         }
                     }
-                    if let Some(req) = app.primary_request.borrow_mut().take() {
+                    if let Some(req) = pending_primary {
                         if req == Color::TRANSPARENT {
                             // Sentinel = reset.
                             primary_override = None;
@@ -1836,6 +1852,8 @@ fn main() -> anyhow::Result<()> {
                                 &theme_names[theme_idx],
                                 theme.colors.primary,
                             );
+                            *app.theme_request.borrow_mut() = None;
+                            *app.primary_request.borrow_mut() = None;
                             eprintln!("[theme] reset primary override");
                         } else {
                             primary_override = Some(req);

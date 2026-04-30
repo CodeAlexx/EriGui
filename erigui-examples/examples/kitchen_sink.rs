@@ -42,6 +42,16 @@ fn set_status(msg: &StatusMsg, text: impl Into<String>) {
     *msg.borrow_mut() = text.into();
 }
 
+// -- Theme picker request channels --------------------------------------------
+//
+// MiscTab hosts a ComboBox + ColorPicker that lets the user pick a theme by
+// name or override the primary color. Both write to these Rc<RefCell> slots;
+// the main event loop reads them after each handle_event pass and rebuilds
+// the live `Theme` accordingly. Same shape as `StatusMsg` — keeps the widget
+// callbacks `'static` without threading raw refs.
+type ThemeRequest = Rc<RefCell<Option<String>>>;
+type ColorRequest = Rc<RefCell<Option<Color>>>;
+
 // ---------- shared layout metrics derived from the theme ----------
 //
 // The theme is already scaled by ui_scale at App start (Theme::with_scale,
@@ -1165,10 +1175,24 @@ struct MiscTab {
     icons_rect: Rect,
     /// Advanced once per redraw tick so the bar visibly moves. Wraps at 100.
     progress_phase: f32,
+
+    // Theme + color picker row.
+    label_theme_section: Label,
+    label_theme: Label,
+    theme_combo: ComboBox,
+    label_primary: Label,
+    primary_picker: ColorPicker,
+    reset_btn: Button,
 }
 
 impl MiscTab {
-    fn new(_status: StatusMsg) -> Self {
+    fn new(
+        _status: StatusMsg,
+        theme_request: ThemeRequest,
+        primary_request: ColorRequest,
+        initial_theme_name: String,
+        initial_primary: Color,
+    ) -> Self {
         let progress = ProgressBar::new(Default::default())
             .with_range(0.0, 100.0)
             .with_value(50.0)
@@ -1180,6 +1204,53 @@ impl MiscTab {
         let text_area = TextArea::new(Default::default())
             .with_text("档案 hello world\nLine 2 with éñ accents\nLine 3 ASCII only")
             .with_line_numbers(true);
+
+        // Theme picker — every built-in theme by display name. Selection writes
+        // to the shared ThemeRequest channel; main reads after handle_event and
+        // rebuilds the live Theme.
+        let theme_names: Vec<String> = Theme::all_named()
+            .into_iter()
+            .map(|t| t.name().to_string())
+            .collect();
+        let initial_idx = theme_names
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(&initial_theme_name))
+            .unwrap_or(0);
+        let req = theme_request.clone();
+        let names_for_combo = theme_names.clone();
+        let theme_combo = ComboBox::new(Default::default())
+            .with_items(theme_names)
+            .with_selected(initial_idx)
+            .with_tooltip("Live theme switch. Same names as Ctrl+T cycle.")
+            .with_on_selection_changed(move |idx, _text| {
+                if let Some(i) = idx {
+                    if let Some(name) = names_for_combo.get(i) {
+                        *req.borrow_mut() = Some(name.clone());
+                    }
+                }
+            });
+
+        // Primary-color override. ColorPicker preview shows the active primary;
+        // changes write the new color to the shared ColorRequest. Reset button
+        // clears the override and restores the theme's default primary.
+        let pick_req = primary_request.clone();
+        let primary_picker = ColorPicker::new(Default::default())
+            .with_color(initial_primary)
+            .with_style(ColorPickerStyle::Compact)
+            .with_on_change(move |c| {
+                *pick_req.borrow_mut() = Some(c);
+            });
+
+        // The reset button writes Color::TRANSPARENT as a sentinel. Main
+        // interprets `Some(Color::TRANSPARENT)` as "clear the primary
+        // override and rebuild the theme from scratch". Any other Color
+        // value is a normal override request.
+        let reset_req = primary_request.clone();
+        let reset_btn = Button::new(Default::default(), "Reset")
+            .with_tooltip("Clear primary-color override and restore the active theme's default.")
+            .with_on_click(move || {
+                *reset_req.borrow_mut() = Some(Color::TRANSPARENT);
+            });
 
         Self {
             label_section: Label::new(
@@ -1202,7 +1273,30 @@ impl MiscTab {
             ),
             icons_rect: Rect::default(),
             progress_phase: 0.0,
+            label_theme_section: Label::new(
+                Default::default(),
+                "Theme & color (live):",
+            ),
+            label_theme: Label::new(Default::default(), "Theme:"),
+            theme_combo,
+            label_primary: Label::new(Default::default(), "Primary:"),
+            primary_picker,
+            reset_btn,
         }
+    }
+
+    /// External update: keep the theme combo's selected index and the
+    /// color picker's preview in sync with whatever the main loop just
+    /// applied (e.g., after Ctrl+T cycled the theme outside this tab).
+    fn sync_to_theme(&mut self, theme_name: &str, primary: Color) {
+        let names: Vec<String> = Theme::all_named()
+            .into_iter()
+            .map(|t| t.name().to_string())
+            .collect();
+        if let Some(idx) = names.iter().position(|n| n.eq_ignore_ascii_case(theme_name)) {
+            self.theme_combo.set_selected(Some(idx));
+        }
+        self.primary_picker.set_color(primary);
     }
 
     /// Advance the progress bar by ~1% per call. Called from the
@@ -1243,8 +1337,35 @@ impl MiscTab {
         self.label_textarea
             .layout(Rect::new(x0, y, full_w, m.label_h), theme);
         y += m.label_h + m.row_gap / 2;
-        let ta_h = (area.bottom() - y - m.pad).max(m.row_h * 4);
+        // Reserve space for the theme-picker row at the bottom: section
+        // label + (label_theme | combo | label_primary | picker | reset).
+        let theme_row_h = m.row_h.max(m.label_h) + m.row_gap / 2 + m.row_h + m.row_gap;
+        let ta_h = (area.bottom() - y - m.pad - theme_row_h).max(m.row_h * 3);
         self.text_area.layout(Rect::new(x0, y, full_w, ta_h), theme);
+        y += ta_h + m.row_gap;
+
+        // Theme & color row.
+        self.label_theme_section
+            .layout(Rect::new(x0, y, full_w, m.label_h), theme);
+        y += m.label_h + m.row_gap / 2;
+        let mut x = x0;
+        let label_w_short = m.btn_w / 2;
+        self.label_theme
+            .layout(Rect::new(x, y, label_w_short, m.row_h), theme);
+        x += label_w_short + m.btn_gap;
+        let combo_w = m.btn_w * 2;
+        self.theme_combo
+            .layout(Rect::new(x, y, combo_w, m.row_h), theme);
+        x += combo_w + m.btn_gap * 2;
+        self.label_primary
+            .layout(Rect::new(x, y, label_w_short, m.row_h), theme);
+        x += label_w_short + m.btn_gap;
+        let pick_w = m.btn_w;
+        self.primary_picker
+            .layout(Rect::new(x, y, pick_w, m.row_h), theme);
+        x += pick_w + m.btn_gap;
+        self.reset_btn
+            .layout(Rect::new(x, y, m.btn_w, m.row_h), theme);
     }
 
     fn draw(&self, ctx: &mut dyn DrawContext, theme: &Theme) {
@@ -1272,6 +1393,16 @@ impl MiscTab {
         self.progress.draw(ctx, theme);
         self.label_textarea.draw(ctx, theme);
         self.text_area.draw(ctx, theme);
+
+        // Theme & color row. Combo's open dropdown is drawn last so it
+        // overlays everything below.
+        self.label_theme_section.draw(ctx, theme);
+        self.label_theme.draw(ctx, theme);
+        self.label_primary.draw(ctx, theme);
+        self.primary_picker.draw(ctx, theme);
+        self.reset_btn.draw(ctx, theme);
+        // ComboBox last so its dropdown popup paints over the picker / button.
+        self.theme_combo.draw(ctx, theme);
     }
 
     fn handle_event(&mut self, e: &Event, theme: &Theme, status: &StatusMsg) {
@@ -1290,6 +1421,13 @@ impl MiscTab {
             }
         }
         let _ = self.text_area.handle_event(e, theme);
+
+        // Theme picker row. ComboBox + ColorPicker + Reset button each get
+        // every event; their callbacks write into the shared request slots,
+        // which the main loop drains.
+        let _ = self.theme_combo.handle_event(e, theme);
+        let _ = self.primary_picker.handle_event(e, theme);
+        let _ = self.reset_btn.handle_event(e, theme);
 
         // After handling, check whether a Ctrl+C just landed by inspecting
         // the in-process clipboard. Update status if it changed.
@@ -1330,13 +1468,20 @@ struct App {
     containers: ContainersTab,
     misc: MiscTab,
 
+    // Theme & primary-color picker write into these from MiscTab; main reads
+    // them after every event pass.
+    pub theme_request: ThemeRequest,
+    pub primary_request: ColorRequest,
+
     // Persisted across ticks for the StatusBar refresh and idle redraw.
     viewport: Size,
 }
 
 impl App {
-    fn new(viewport: Size) -> Self {
+    fn new(viewport: Size, initial_theme_name: String, initial_primary: Color) -> Self {
         let status_msg = make_status_msg();
+        let theme_request: ThemeRequest = Rc::new(RefCell::new(None));
+        let primary_request: ColorRequest = Rc::new(RefCell::new(None));
         let mut widget_mgr = WidgetManager::new();
 
         let mut tabs = TabControl::new(Default::default()).with_on_tab_changed({
@@ -1376,7 +1521,13 @@ impl App {
         modals.notifications_closed = notif_close_count.clone();
         let pickers = PickersTab::new(status_msg.clone());
         let containers = ContainersTab::new(status_msg.clone());
-        let misc = MiscTab::new(status_msg.clone());
+        let misc = MiscTab::new(
+            status_msg.clone(),
+            theme_request.clone(),
+            primary_request.clone(),
+            initial_theme_name,
+            initial_primary,
+        );
 
         // widget_mgr only used to mint unique RadioButton ids; not needed
         // post-construction (radios own their own state). Drop it.
@@ -1394,6 +1545,8 @@ impl App {
             pickers,
             containers,
             misc,
+            theme_request,
+            primary_request,
             viewport,
         }
     }
@@ -1526,11 +1679,56 @@ fn main() -> anyhow::Result<()> {
 
     let mut renderer =
         Renderer::new(&event_loop, win_w, win_h, "EriGui Kitchen Sink (wave-2/3 verify)")?;
-    let theme = Theme::dark().with_scale(ui_scale);
+
+    // ERIGUI_THEME=<name> picks a starting theme by name (case-insensitive
+    // via Theme::by_name). Default is Dark. Ctrl+T cycles through every
+    // built-in theme at runtime so all 10 can be previewed in one session.
+    let theme_names: Vec<String> = Theme::all_named()
+        .into_iter()
+        .map(|t| t.name().to_string())
+        .collect();
+    let initial_name = std::env::var("ERIGUI_THEME").ok();
+    let mut theme_idx: usize = initial_name
+        .as_deref()
+        .and_then(|n| {
+            let n_lower = n.trim().to_ascii_lowercase();
+            theme_names
+                .iter()
+                .position(|tn| tn.to_ascii_lowercase() == n_lower)
+        })
+        .unwrap_or_else(|| {
+            theme_names
+                .iter()
+                .position(|n| n == "Dark")
+                .unwrap_or(0)
+        });
+    let mut theme = Theme::by_name(&theme_names[theme_idx])
+        .unwrap_or_else(Theme::dark)
+        .with_scale(ui_scale);
+    // Active primary-color override (None = use theme's default).
+    let mut primary_override: Option<Color> = None;
+    let apply_primary_override = |theme: &mut Theme, color: Color| {
+        // Mirror the primary slot AND the hover/active variants so the
+        // override is consistent across button states. derive_hover/active
+        // shifts the lightness slightly; cheap approximation here.
+        theme.colors.primary = color;
+        theme.colors.primary_hover = color.with_alpha(255);
+        theme.colors.primary_active = color.with_alpha(255);
+        theme.colors.border_focus = color;
+        theme.colors.selection = Color::rgba(color.r, color.g, color.b, 100);
+    };
+    eprintln!(
+        "[theme] starting with {} (Ctrl+T cycles, picker in tab 6)",
+        theme_names[theme_idx]
+    );
     clear_clipboard();
 
     let viewport = renderer.viewport_size();
-    let mut app = App::new(viewport);
+    let mut app = App::new(
+        viewport,
+        theme_names[theme_idx].clone(),
+        theme.colors.primary,
+    );
     app.layout(viewport, &theme);
 
     // Persistent translator — caches last_cursor across calls so MouseInput
@@ -1577,7 +1775,78 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 if let Some(gui_event) = translator.translate(&event) {
-                    app.handle_event(&gui_event, &theme);
+                    // Ctrl+T cycles to the next built-in theme. Intercept
+                    // BEFORE the app sees the event so widgets don't get
+                    // a stray "T" keypress while we're swapping the theme
+                    // out from under them. The next layout pass picks up
+                    // the new theme.
+                    let mut consumed_for_theme = false;
+                    if let Event::KeyPress(KeyPressEvent { key, modifiers, .. }) = &gui_event {
+                        if matches!(key, Key::T) && modifiers.contains(Modifiers::CTRL) {
+                            theme_idx = (theme_idx + 1) % theme_names.len();
+                            theme = Theme::by_name(&theme_names[theme_idx])
+                                .unwrap_or_else(Theme::dark)
+                                .with_scale(ui_scale);
+                            if let Some(c) = primary_override {
+                                apply_primary_override(&mut theme, c);
+                            }
+                            app.misc.sync_to_theme(
+                                &theme_names[theme_idx],
+                                theme.colors.primary,
+                            );
+                            eprintln!("[theme] {}", theme_names[theme_idx]);
+                            consumed_for_theme = true;
+                        }
+                    }
+                    if !consumed_for_theme {
+                        app.handle_event(&gui_event, &theme);
+                    }
+
+                    // Drain MiscTab's theme-picker requests. The combo writes
+                    // a theme name; the color picker writes Some(Color); the
+                    // Reset button writes the sentinel Color::TRANSPARENT to
+                    // mean "clear the override".
+                    if let Some(req) = app.theme_request.borrow_mut().take() {
+                        if let Some(idx) = theme_names
+                            .iter()
+                            .position(|n| n.eq_ignore_ascii_case(&req))
+                        {
+                            theme_idx = idx;
+                            theme = Theme::by_name(&theme_names[theme_idx])
+                                .unwrap_or_else(Theme::dark)
+                                .with_scale(ui_scale);
+                            if let Some(c) = primary_override {
+                                apply_primary_override(&mut theme, c);
+                            }
+                            app.misc.sync_to_theme(
+                                &theme_names[theme_idx],
+                                theme.colors.primary,
+                            );
+                            eprintln!("[theme] {}", theme_names[theme_idx]);
+                        }
+                    }
+                    if let Some(req) = app.primary_request.borrow_mut().take() {
+                        if req == Color::TRANSPARENT {
+                            // Sentinel = reset.
+                            primary_override = None;
+                            theme = Theme::by_name(&theme_names[theme_idx])
+                                .unwrap_or_else(Theme::dark)
+                                .with_scale(ui_scale);
+                            app.misc.sync_to_theme(
+                                &theme_names[theme_idx],
+                                theme.colors.primary,
+                            );
+                            eprintln!("[theme] reset primary override");
+                        } else {
+                            primary_override = Some(req);
+                            apply_primary_override(&mut theme, req);
+                            eprintln!(
+                                "[theme] primary -> ({}, {}, {})",
+                                req.r, req.g, req.b
+                            );
+                        }
+                    }
+
                     // After every event, push an animation tick to the
                     // notification manager so slide-in/out animations
                     // settle. 16ms ~= 60Hz frame budget.

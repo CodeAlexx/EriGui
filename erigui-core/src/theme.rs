@@ -251,6 +251,311 @@ impl Theme {
         Self::light()
     }
 
+    // ============================================================
+    // Ported palettes (from serenity/serenity/ui/theme.py)
+    //
+    // Mapping rules (ImGui palette → EriGui ThemeColors):
+    //   window_bg            → background
+    //   child_bg             → surface
+    //   popup_bg / frame_bg  → surface_variant
+    //   text                 → text
+    //   text_disabled        → text_disabled
+    //   text_selected_bg     → selection
+    //   button*              → primary*
+    //   header*              → secondary*
+    //   border               → border
+    //   modal_dim_bg         → overlay
+    //
+    // Slots without an ImGui equivalent (success / warning / error /
+    // info / border_focus / shadow / text_secondary / primary_disabled)
+    // are assigned palette-appropriate defaults.
+    // ============================================================
+
+    /// Serenity palette — indigo + soft purple. Default for the
+    /// serenity training UI. Source: `theme.py:PALETTE_SERENITY`.
+    pub fn serenity() -> Self {
+        Self {
+            name: "Serenity".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(26, 26, 46),
+                surface: Color::rgb(22, 33, 62),
+                surface_variant: Color::rgb(30, 30, 52),
+                text: Color::rgb(232, 232, 232),
+                text_secondary: Color::rgb(165, 174, 205),
+                text_disabled: Color::rgb(102, 102, 102),
+                primary: Color::rgb(67, 97, 238),
+                primary_hover: Color::rgb(90, 120, 240),
+                primary_active: Color::rgb(52, 81, 222),
+                primary_disabled: Color::rgb(40, 50, 90),
+                secondary: Color::rgb(15, 52, 96),
+                secondary_hover: Color::rgb(20, 65, 120),
+                secondary_active: Color::rgb(25, 78, 140),
+                success: Color::rgb(124, 232, 196),
+                warning: Color::rgb(242, 201, 76),
+                error: Color::rgb(239, 107, 115),
+                info: Color::rgb(95, 212, 255),
+                border: Color::rgb(42, 42, 74),
+                border_hover: Color::rgb(70, 70, 110),
+                border_focus: Color::rgb(67, 97, 238),
+                selection: Color::rgba(67, 97, 238, 100),
+                shadow: Color::rgba(15, 15, 30, 200),
+                overlay: Color::rgba(0, 0, 0, 140),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Moonlight palette — neutral gray with yellow accent. Source:
+    /// `theme.py:PALETTE_MOONLIGHT`.
+    pub fn moonlight() -> Self {
+        Self {
+            name: "Moonlight".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(20, 22, 26),
+                surface: Color::rgb(24, 26, 30),
+                surface_variant: Color::rgb(29, 32, 39),
+                text: Color::rgb(255, 255, 255),
+                text_secondary: Color::rgb(180, 180, 200),
+                text_disabled: Color::rgb(70, 81, 115),
+                primary: Color::rgb(248, 255, 127),
+                primary_hover: Color::rgb(255, 255, 160),
+                primary_active: Color::rgb(255, 203, 127),
+                primary_disabled: Color::rgb(60, 60, 60),
+                secondary: Color::rgb(36, 42, 53),
+                secondary_hover: Color::rgb(50, 60, 75),
+                secondary_active: Color::rgb(40, 47, 64),
+                success: Color::rgb(120, 220, 140),
+                warning: Color::rgb(248, 255, 127),
+                error: Color::rgb(220, 100, 100),
+                info: Color::rgb(140, 200, 240),
+                border: Color::rgb(40, 43, 49),
+                border_hover: Color::rgb(60, 65, 75),
+                border_focus: Color::rgb(248, 255, 127),
+                selection: Color::rgba(248, 255, 127, 100),
+                shadow: Color::rgba(0, 0, 0, 160),
+                overlay: Color::rgba(50, 45, 139, 128),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Monochrome palette — cyan-on-black, hacker terminal aesthetic.
+    /// Source: `theme.py:PALETTE_MONOCHROME`.
+    pub fn monochrome() -> Self {
+        Self {
+            name: "Monochrome".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0, 0, 0),
+                surface: Color::rgb(0, 16, 16),
+                surface_variant: Color::rgb(0, 33, 33),
+                text: Color::rgb(0, 255, 255),
+                text_secondary: Color::rgb(0, 200, 200),
+                text_disabled: Color::rgb(0, 102, 105),
+                primary: Color::rgb(0, 255, 255),
+                primary_hover: Color::rgb(80, 255, 255),
+                primary_active: Color::rgb(0, 200, 200),
+                primary_disabled: Color::rgb(0, 60, 60),
+                secondary: Color::rgba(0, 255, 255, 84).with_alpha(255),
+                secondary_hover: Color::rgb(0, 180, 180),
+                secondary_active: Color::rgb(0, 230, 230),
+                success: Color::rgb(0, 255, 128),
+                warning: Color::rgb(255, 255, 0),
+                error: Color::rgb(255, 80, 80),
+                info: Color::rgb(0, 255, 255),
+                border: Color::rgba(0, 255, 255, 166),
+                border_hover: Color::rgb(0, 255, 255),
+                border_focus: Color::rgb(0, 255, 255),
+                selection: Color::rgba(0, 255, 255, 56),
+                shadow: Color::rgba(0, 0, 0, 0),
+                overlay: Color::rgba(10, 26, 23, 130),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Nord palette — cool arctic blue/gray. Source:
+    /// `theme.py:PALETTE_NORD`.
+    pub fn nord() -> Self {
+        Self {
+            name: "Nord".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(46, 52, 64),
+                surface: Color::rgb(41, 43, 51),
+                surface_variant: Color::rgb(59, 66, 82),
+                text: Color::rgb(216, 222, 233),
+                text_secondary: Color::rgb(180, 190, 210),
+                text_disabled: Color::rgb(125, 128, 135),
+                primary: Color::rgb(46, 52, 64),
+                primary_hover: Color::rgb(130, 161, 194),
+                primary_active: Color::rgb(94, 130, 171),
+                primary_disabled: Color::rgb(60, 65, 75),
+                secondary: Color::rgb(130, 161, 194),
+                secondary_hover: Color::rgb(135, 191, 209),
+                secondary_active: Color::rgb(94, 130, 171),
+                success: Color::rgb(163, 190, 140),
+                warning: Color::rgb(235, 203, 139),
+                error: Color::rgb(191, 97, 106),
+                info: Color::rgb(143, 188, 187),
+                border: Color::rgb(36, 41, 49),
+                border_hover: Color::rgb(76, 86, 106),
+                border_focus: Color::rgb(143, 188, 187),
+                selection: Color::rgba(94, 130, 171, 100),
+                shadow: Color::rgba(0, 0, 0, 100),
+                overlay: Color::rgba(26, 26, 38, 153),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Cinder palette — slate dark with red accent. Source:
+    /// `theme.py:PALETTE_CINDER`.
+    pub fn cinder() -> Self {
+        Self {
+            name: "Cinder".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(33, 36, 43),
+                surface: Color::rgb(33, 36, 43),
+                surface_variant: Color::rgb(51, 56, 69),
+                text: Color::rgb(220, 237, 227),
+                text_secondary: Color::rgb(180, 195, 188),
+                text_disabled: Color::rgb(110, 120, 115),
+                primary: Color::rgb(235, 46, 74),
+                primary_hover: Color::rgb(255, 80, 100),
+                primary_active: Color::rgb(180, 35, 60),
+                primary_disabled: Color::rgb(80, 30, 40),
+                secondary: Color::rgb(120, 196, 211),
+                secondary_hover: Color::rgb(160, 220, 230),
+                secondary_active: Color::rgb(90, 160, 180),
+                success: Color::rgb(120, 200, 140),
+                warning: Color::rgb(235, 180, 80),
+                error: Color::rgb(235, 46, 74),
+                info: Color::rgb(120, 196, 211),
+                border: Color::rgb(36, 41, 49),
+                border_hover: Color::rgb(70, 80, 90),
+                border_focus: Color::rgb(235, 46, 74),
+                selection: Color::rgba(235, 46, 74, 110),
+                shadow: Color::rgba(0, 0, 0, 100),
+                overlay: Color::rgba(51, 56, 69, 186),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Blender palette — neutral gray with blue selection accent.
+    /// Mirrors the Blender 3D editor look. Source:
+    /// `theme.py:PALETTE_BLENDER`.
+    pub fn blender() -> Self {
+        Self {
+            name: "Blender".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(56, 56, 56),
+                surface: Color::rgb(48, 48, 48),
+                surface_variant: Color::rgb(84, 84, 84),
+                text: Color::rgb(214, 214, 214),
+                text_secondary: Color::rgb(160, 160, 160),
+                text_disabled: Color::rgb(127, 127, 127),
+                primary: Color::rgb(71, 114, 179),
+                primary_hover: Color::rgb(90, 130, 195),
+                primary_active: Color::rgb(48, 99, 176),
+                primary_disabled: Color::rgb(70, 70, 70),
+                secondary: Color::rgb(69, 69, 69),
+                secondary_hover: Color::rgb(102, 102, 102),
+                secondary_active: Color::rgb(48, 99, 176),
+                success: Color::rgb(120, 180, 120),
+                warning: Color::rgb(220, 180, 80),
+                error: Color::rgb(220, 100, 100),
+                info: Color::rgb(120, 160, 200),
+                border: Color::rgb(43, 43, 43),
+                border_hover: Color::rgb(70, 70, 70),
+                border_focus: Color::rgb(71, 114, 179),
+                selection: Color::rgba(71, 114, 179, 130),
+                shadow: Color::rgba(0, 0, 0, 100),
+                overlay: Color::rgba(26, 26, 26, 153),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// Cyberpunk palette — neon cyan/magenta on near-black. Source:
+    /// `theme.py:PALETTE_CYBERPUNK`.
+    pub fn cyberpunk() -> Self {
+        Self {
+            name: "Cyberpunk".to_string(),
+            colors: ThemeColors {
+                background: Color::rgb(0, 10, 31),
+                surface: Color::rgb(8, 10, 56),
+                surface_variant: Color::rgb(31, 15, 69),
+                text: Color::rgb(0, 209, 255),
+                text_secondary: Color::rgb(140, 220, 255),
+                text_disabled: Color::rgb(0, 92, 161),
+                primary: Color::rgb(0, 250, 255),
+                primary_hover: Color::rgb(240, 0, 255),
+                primary_active: Color::rgb(2, 0, 255),
+                primary_disabled: Color::rgb(50, 50, 90),
+                secondary: Color::rgb(155, 0, 255),
+                secondary_hover: Color::rgb(190, 80, 255),
+                secondary_active: Color::rgb(120, 0, 200),
+                success: Color::rgb(0, 255, 217),
+                warning: Color::rgb(255, 230, 0),
+                error: Color::rgb(255, 50, 100),
+                info: Color::rgb(0, 220, 255),
+                border: Color::rgb(155, 0, 255),
+                border_hover: Color::rgb(0, 250, 255),
+                border_focus: Color::rgb(0, 250, 255),
+                selection: Color::rgba(0, 209, 255, 100),
+                shadow: Color::rgba(0, 0, 0, 0),
+                overlay: Color::rgba(13, 0, 51, 153),
+            },
+            ..Self::dark()
+        }
+    }
+
+    /// All themes ported from serenity, in display order. Useful for
+    /// building a theme-picker dropdown — iterate and call `.name()`
+    /// on each, then dispatch back via [`Theme::by_name`].
+    pub fn all_named() -> Vec<Theme> {
+        vec![
+            Self::dark(),
+            Self::light(),
+            Self::alex_jammin(),
+            Self::serenity(),
+            Self::moonlight(),
+            Self::monochrome(),
+            Self::nord(),
+            Self::cinder(),
+            Self::blender(),
+            Self::cyberpunk(),
+        ]
+    }
+
+    /// Look up a theme by display name. Case-insensitive. Returns
+    /// `None` if the name doesn't match any built-in theme.
+    /// Use this to wire a theme-picker dropdown back to a `Theme`
+    /// without keeping closures around.
+    pub fn by_name(name: &str) -> Option<Theme> {
+        let n = name.trim().to_ascii_lowercase();
+        Some(match n.as_str() {
+            "dark" => Self::dark(),
+            "light" => Self::light(),
+            "alexjammin" | "alex_jammin" | "alex jammin" => Self::alex_jammin(),
+            "serenity" => Self::serenity(),
+            "moonlight" => Self::moonlight(),
+            "monochrome" => Self::monochrome(),
+            "nord" => Self::nord(),
+            "cinder" => Self::cinder(),
+            "blender" => Self::blender(),
+            "cyberpunk" => Self::cyberpunk(),
+            _ => return None,
+        })
+    }
+
+    /// The display name of this theme. Always equal to the `name`
+    /// field; provided as a method so call sites don't reach into
+    /// the struct directly.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Scale all pixel-valued fields by `scale` (typography font sizes,
     /// spacing, borders). For HiDPI: pass the monitor's `scale_factor`.
     /// Leaves color/font_family/line_height/letter_spacing untouched.
@@ -298,6 +603,13 @@ impl ThemeManager {
         themes.insert("Light".to_string(), Theme::light());
         themes.insert("Dark".to_string(), Theme::dark());
         themes.insert("alexJammin".to_string(), Theme::alex_jammin());
+        themes.insert("Serenity".to_string(), Theme::serenity());
+        themes.insert("Moonlight".to_string(), Theme::moonlight());
+        themes.insert("Monochrome".to_string(), Theme::monochrome());
+        themes.insert("Nord".to_string(), Theme::nord());
+        themes.insert("Cinder".to_string(), Theme::cinder());
+        themes.insert("Blender".to_string(), Theme::blender());
+        themes.insert("Cyberpunk".to_string(), Theme::cyberpunk());
 
         Self {
             themes,
@@ -410,13 +722,28 @@ mod tests {
     // ----- ThemeManager -----
 
     #[test]
-    fn manager_default_starts_with_three_themes() {
+    fn manager_default_starts_with_builtin_themes() {
         let m = ThemeManager::default();
         let names = m.list_themes();
-        assert_eq!(names.len(), 3);
-        assert!(names.contains(&"Light"));
-        assert!(names.contains(&"Dark"));
-        assert!(names.contains(&"alexJammin"));
+        // Three originals + seven serenity-port palettes.
+        assert_eq!(names.len(), 10);
+        for required in [
+            "Light",
+            "Dark",
+            "alexJammin",
+            "Serenity",
+            "Moonlight",
+            "Monochrome",
+            "Nord",
+            "Cinder",
+            "Blender",
+            "Cyberpunk",
+        ] {
+            assert!(
+                names.contains(&required),
+                "default ThemeManager should contain {required}"
+            );
+        }
     }
 
     #[test]
@@ -466,10 +793,49 @@ mod tests {
     #[test]
     fn manager_list_themes_returns_all_keys() {
         let mut m = ThemeManager::new();
+        let baseline = m.list_themes().len();
         let mut t = Theme::dark();
         t.name = "Extra".to_string();
         m.add_theme(t);
-        assert_eq!(m.list_themes().len(), 4);
+        assert_eq!(m.list_themes().len(), baseline + 1);
+    }
+
+    // ----- ported palettes (serenity) -----
+
+    #[test]
+    fn ported_palettes_round_trip_via_by_name() {
+        let canon = [
+            ("Serenity", Theme::serenity()),
+            ("Moonlight", Theme::moonlight()),
+            ("Monochrome", Theme::monochrome()),
+            ("Nord", Theme::nord()),
+            ("Cinder", Theme::cinder()),
+            ("Blender", Theme::blender()),
+            ("Cyberpunk", Theme::cyberpunk()),
+        ];
+        for (name, expected) in canon {
+            let by_name = Theme::by_name(name).expect("by_name must resolve");
+            assert_eq!(by_name.name(), expected.name());
+        }
+    }
+
+    #[test]
+    fn by_name_is_case_insensitive_and_handles_unknown() {
+        assert!(Theme::by_name("DARK").is_some());
+        assert!(Theme::by_name(" cyberpunk ").is_some());
+        assert!(Theme::by_name("does_not_exist").is_none());
+    }
+
+    #[test]
+    fn all_named_returns_every_built_in_theme() {
+        let all = Theme::all_named();
+        // 3 originals + 7 serenity-port palettes.
+        assert_eq!(all.len(), 10);
+        // No empty names; every entry must round-trip via by_name.
+        for theme in &all {
+            assert!(!theme.name().is_empty());
+            assert!(Theme::by_name(theme.name()).is_some());
+        }
     }
 
     // ----- with_scale (HiDPI) -----
